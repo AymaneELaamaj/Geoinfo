@@ -16,7 +16,7 @@ Invoke-WebRequest -Uri "http://localhost:8085/api/health" -Method GET
 {
   "status": "OK",
   "timestamp": "2025-12-18T22:15:00Z",
-  "service": "GeoInfo Backend",
+  "service": "CityAlert Backend",
   "version": "1.0.0"
 }
 ```

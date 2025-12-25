@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import { Filter, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -215,7 +216,7 @@ const getIncidentIcon = (typeIncident, statut) => {
 
   const color = statutColors[statut] || '#6b7280';
   const symbol = typeSymbols[typeIncident] || typeSymbols['default'];
-  
+
   return createCustomIcon(color, symbol);
 };
 
@@ -238,10 +239,43 @@ const MapUpdater = ({ incidents }) => {
 };
 
 /**
+ * Composant pour centrer la carte sur un incident spécifique depuis l'URL
+ */
+const IncidentFocus = ({ targetIncident, markerRefs }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (targetIncident) {
+      const lat = parseFloat(targetIncident.latitude);
+      const lng = parseFloat(targetIncident.longitude);
+
+      if (!isNaN(lat) && !isNaN(lng)) {
+        // Centrer et zoomer FORTEMENT sur l'incident (niveau 18 = très proche)
+        map.setView([lat, lng], 18, {
+          animate: true,
+          duration: 1.5 // Animation plus fluide
+        });
+
+        // Ouvrir le popup après un petit délai pour laisser le temps à la carte de se positionner
+        setTimeout(() => {
+          const markerRef = markerRefs.current[targetIncident.id];
+          if (markerRef) {
+            markerRef.openPopup();
+          }
+        }, 800); // Délai augmenté pour l'animation
+      }
+    }
+  }, [targetIncident, map, markerRefs]);
+
+  return null;
+};
+
+/**
  * Page Carte - Visualisation géographique des incidents
  * Connectée au backend Spring Boot
  */
 const MapView = () => {
+  const [searchParams] = useSearchParams();
   const [incidents, setIncidents] = useState([]);
   const [filteredIncidents, setFilteredIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -253,11 +287,59 @@ const MapView = () => {
   });
   const [showClusters, setShowClusters] = useState(true);
   const [secteurs, setSecteurs] = useState([]);
+  const [targetIncident, setTargetIncident] = useState(null);
+  const [legendExpanded, setLegendExpanded] = useState(false);
+  const markerRefs = useRef({});
+
+  // Lire les paramètres URL pour zoomer sur un incident spécifique
+  useEffect(() => {
+    const incidentId = searchParams.get('incident'); // Changement: lire 'incident' au lieu de 'id'
+
+    if (incidentId && incidents.length > 0) {
+      const incident = incidents.find(i => i.id === parseInt(incidentId));
+      if (incident) {
+        console.log('🎯 Zoom sur incident #', incidentId);
+        setTargetIncident(incident);
+      }
+    }
+  }, [searchParams, incidents]);
 
   // Fonction locale pour obtenir le nom du secteur
   const getSecteurNom = (secteurId) => {
     const secteur = secteurs.find(s => s.id === secteurId);
     return secteur ? secteur.nom : 'Secteur inconnu';
+  };
+
+  /**
+   * Calcule les statistiques de la légende dynamiquement
+   * Compte les incidents par TYPE réel (pas par secteur)
+   */
+  const getLegendStats = () => {
+    // Compter les incidents par type réel
+    const typeCounts = {};
+    const typeColors = {}; // Couleur basée sur le secteur
+
+    filteredIncidents.forEach(incident => {
+      const type = incident.typeIncident || 'Autre';
+
+      // Incrémenter le compteur
+      typeCounts[type] = (typeCounts[type] || 0) + 1;
+
+      // Assigner la couleur selon le secteur (si pas déjà fait)
+      if (!typeColors[type]) {
+        const secteur = secteurs.find(s => s.id === incident.secteurId);
+        typeColors[type] = secteur ? secteur.color : '#6b7280';
+      }
+    });
+
+    // Convertir en array et trier par count (décroissant)
+    return Object.entries(typeCounts)
+      .map(([name, count]) => ({
+        name,
+        count,
+        color: typeColors[name]
+      }))
+      .sort((a, b) => b.count - a.count); // Trier du plus fréquent au moins fréquent
   };
 
   /**
@@ -268,7 +350,7 @@ const MapView = () => {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Charger les incidents
         const incidentsData = await incidentsAPI.getAll();
         console.log('Incidents récupérés du backend:', incidentsData);
@@ -301,7 +383,7 @@ const MapView = () => {
       const lng = parseFloat(incident.longitude);
       return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
     });
-    
+
     console.log('Incidents avec coordonnées valides:', validIncidents);
     setFilteredIncidents(validIncidents);
   }, [incidents]); // Ne dépend que des incidents, pas des filtres
@@ -334,7 +416,8 @@ const MapView = () => {
     }
 
     if (filters.province) {
-      filtered = filtered.filter(i => i.provinceId === parseInt(filters.province));
+      // Comparer avec le nom de province (string) au lieu de provinceId
+      filtered = filtered.filter(i => i.province === filters.province);
     }
 
     if (filters.statut) {
@@ -351,14 +434,14 @@ const MapView = () => {
    */
   const resetFilters = () => {
     setFilters({ secteur: '', province: '', statut: '' });
-    
+
     // Réafficher tous les incidents avec coordonnées valides
     const validIncidents = incidents.filter(incident => {
       const lat = parseFloat(incident.latitude);
       const lng = parseFloat(incident.longitude);
       return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
     });
-    
+
     setFilteredIncidents(validIncidents);
   };
 
@@ -397,8 +480,8 @@ const MapView = () => {
               <h2 style={{ fontSize: '1.2rem', fontWeight: '600' }}>Filtres</h2>
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={showClusters}
                 onChange={(e) => setShowClusters(e.target.checked)}
               />
@@ -409,7 +492,7 @@ const MapView = () => {
           <div className="grid grid-4">
             <div className="form-group">
               <label className="form-label">Secteur</label>
-              <select 
+              <select
                 className="form-select"
                 value={filters.secteur}
                 onChange={(e) => handleFilterChange('secteur', e.target.value)}
@@ -425,7 +508,7 @@ const MapView = () => {
 
             <div className="form-group">
               <label className="form-label">Province</label>
-              <select 
+              <select
                 className="form-select"
                 value={filters.province}
                 onChange={(e) => handleFilterChange('province', e.target.value)}
@@ -441,7 +524,7 @@ const MapView = () => {
 
             <div className="form-group">
               <label className="form-label">Statut</label>
-              <select 
+              <select
                 className="form-select"
                 value={filters.statut}
                 onChange={(e) => handleFilterChange('statut', e.target.value)}
@@ -456,14 +539,14 @@ const MapView = () => {
             </div>
 
             <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem' }}>
-              <button 
+              <button
                 className="btn btn-primary"
                 onClick={handleSearch}
                 style={{ flex: '1' }}
               >
                 🔍 Chercher
               </button>
-              <button 
+              <button
                 className="btn btn-secondary"
                 onClick={resetFilters}
                 style={{ flex: '1' }}
@@ -476,77 +559,249 @@ const MapView = () => {
 
         {/* Carte */}
         <div style={{ height: '600px', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', position: 'relative' }}>
-          {/* Légende flottante */}
+          {/* Légende LIVE MONITOR - Version Simplifiée */}
           <div style={{
             position: 'absolute',
             top: '15px',
             left: '15px',
             zIndex: 1000,
-            backgroundColor: 'rgba(55, 65, 81, 0.95)',
+            backgroundColor: 'rgba(30, 41, 59, 0.95)',
             color: 'white',
             borderRadius: '12px',
-            padding: '16px',
-            minWidth: '220px',
+            padding: '14px 16px',
+            minWidth: '200px',
+            maxWidth: '240px',
+            maxHeight: '560px',
+            overflowY: 'auto',
+            overflowX: 'hidden',
             fontSize: '13px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-            backdropFilter: 'blur(8px)'
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4), 0 0 20px rgba(59, 130, 246, 0.15)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(96, 165, 250, 0.2)',
+            transition: 'all 0.3s ease'
           }}>
-            {/* Header */}
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <div style={{ width: '8px', height: '8px', backgroundColor: '#10b981', borderRadius: '50%' }}></div>
-                <span style={{ fontWeight: '600', fontSize: '14px' }}>LIVE MONITOR</span>
+            {/* Header avec indicateur LIVE */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '12px',
+              paddingBottom: '10px',
+              borderBottom: '1px solid rgba(96, 165, 250, 0.2)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  width: '8px',
+                  height: '8px',
+                  backgroundColor: '#10b981',
+                  borderRadius: '50%',
+                  boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)',
+                  animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                }}></div>
+                <span style={{
+                  fontWeight: '700',
+                  fontSize: '14px',
+                  letterSpacing: '0.5px',
+                  background: 'linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text'
+                }}>LIVE MONITOR</span>
               </div>
-              
+            </div>
 
-            </div>
-            
-            {/* Légende */}
-            <div>
-              <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '12px' }}>LÉGENDE</div>
-              
-              {/* Types d'incidents */}
-              <div style={{ marginBottom: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                  <div style={{ width: '10px', height: '10px', backgroundColor: '#3b82f6', borderRadius: '50%' }}></div>
-                  <span>Infrastructure</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                  <div style={{ width: '10px', height: '10px', backgroundColor: '#10b981', borderRadius: '50%' }}></div>
-                  <span>Environnement</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                  <div style={{ width: '10px', height: '10px', backgroundColor: '#ef4444', borderRadius: '50%' }}></div>
-                  <span>Sécurité</span>
-                </div>
+            {/* Total incidents avec badge */}
+            <div style={{
+              marginBottom: '14px',
+              padding: '10px 12px',
+              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(96, 165, 250, 0.1) 100%)',
+              borderRadius: '8px',
+              border: '1px solid rgba(96, 165, 250, 0.3)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '12px', color: 'rgba(191, 219, 254, 0.9)' }}>Total incidents</span>
+                <span style={{
+                  fontWeight: '700',
+                  fontSize: '16px',
+                  color: '#60a5fa'
+                }}>{filteredIncidents.length}</span>
               </div>
-              
-              {/* Secteurs */}
-              <div style={{ marginBottom: '6px' }}>
-                <div style={{ fontWeight: '600', marginBottom: '4px', fontSize: '11px', color: 'rgba(255,255,255,0.8)' }}>SECTEURS</div>
-                {secteurs && secteurs.map(secteur => secteur && secteur.id ? (
-                  <div key={secteur.id} style={{ marginBottom: '2px' }}>
-                    <span style={{ fontSize: '11px' }}>{secteur.nom}</span>
+            </div>
+
+            {/* Catégories actives avec compteurs */}
+            {getLegendStats().length > 0 ? (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  marginBottom: '8px',
+                  color: 'rgba(226, 232, 240, 0.7)',
+                  letterSpacing: '0.5px'
+                }}>CATÉGORIES</div>
+                {getLegendStats().map((category, index) => (
+                  <div
+                    key={category.name}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: index < getLegendStats().length - 1 ? '8px' : '0',
+                      padding: '6px 8px',
+                      background: 'rgba(51, 65, 85, 0.4)',
+                      borderRadius: '6px',
+                      border: `1px solid ${category.color}30`,
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = `${category.color}15`;
+                      e.currentTarget.style.borderColor = `${category.color}60`;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(51, 65, 85, 0.4)';
+                      e.currentTarget.style.borderColor = `${category.color}30`;
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{
+                        width: '10px',
+                        height: '10px',
+                        backgroundColor: category.color,
+                        borderRadius: '50%',
+                        boxShadow: `0 0 6px ${category.color}60`
+                      }}></div>
+                      <span style={{ fontSize: '12px' }}>{category.name}</span>
+                    </div>
+                    <span style={{
+                      fontWeight: '700',
+                      fontSize: '13px',
+                      color: category.color,
+                      minWidth: '24px',
+                      textAlign: 'right'
+                    }}>{category.count}</span>
                   </div>
-                ) : null)}
+                ))}
               </div>
-              
-              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', marginTop: '8px' }}>
-                Total: {filteredIncidents.length} incidents
+            ) : (
+              <div style={{
+                padding: '12px',
+                textAlign: 'center',
+                fontSize: '12px',
+                color: 'rgba(226, 232, 240, 0.6)',
+                fontStyle: 'italic'
+              }}>
+                Aucun incident à afficher
               </div>
-            </div>
+            )}
+
+            {/* Bouton toggle pour détails */}
+            {getLegendStats().length > 0 && (
+              <button
+                onClick={() => setLegendExpanded(!legendExpanded)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  marginTop: '8px',
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(96, 165, 250, 0.08) 100%)',
+                  border: '1px solid rgba(96, 165, 250, 0.3)',
+                  borderRadius: '6px',
+                  color: 'rgba(147, 197, 253, 0.9)',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(96, 165, 250, 0.15) 100%)';
+                  e.currentTarget.style.borderColor = 'rgba(96, 165, 250, 0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(96, 165, 250, 0.08) 100%)';
+                  e.currentTarget.style.borderColor = 'rgba(96, 165, 250, 0.3)';
+                }}
+              >
+                <span>{legendExpanded ? '▲' : '▼'}</span>
+                <span>{legendExpanded ? 'Masquer détails' : 'Afficher détails'}</span>
+              </button>
+            )}
+
+            {/* Section étendue (optionnelle) */}
+            {legendExpanded && (
+              <div style={{
+                marginTop: '12px',
+                paddingTop: '12px',
+                borderTop: '1px solid rgba(96, 165, 250, 0.2)',
+                animation: 'slideDown 0.3s ease'
+              }}>
+                <div style={{
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  marginBottom: '8px',
+                  color: 'rgba(226, 232, 240, 0.7)',
+                  letterSpacing: '0.5px'
+                }}>FILTRES ACTIFS</div>
+                {filters.secteur || filters.province || filters.statut ? (
+                  <div style={{ fontSize: '11px', color: 'rgba(226, 232, 240, 0.8)' }}>
+                    {filters.secteur && <div>• Secteur: {getSecteurNom(parseInt(filters.secteur))}</div>}
+                    {filters.province && <div>• Province: {filters.province}</div>}
+                    {filters.statut && <div>• Statut: {filters.statut}</div>}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '11px', color: 'rgba(226, 232, 240, 0.5)', fontStyle: 'italic' }}>
+                    Aucun filtre appliqué
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Animation CSS */}
+            <style>{`
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+              }
+              @keyframes slideDown {
+                from {
+                  opacity: 0;
+                  transform: translateY(-10px);
+                }
+                to {
+                  opacity: 1;
+                  transform: translateY(0);
+                }
+              }
+              /* Custom scrollbar for legend */
+              div[style*="rgba(30, 41, 59, 0.95)"]::-webkit-scrollbar {
+                width: 6px;
+              }
+              div[style*="rgba(30, 41, 59, 0.95)"]::-webkit-scrollbar-track {
+                background: rgba(51, 65, 85, 0.4);
+                border-radius: 3px;
+              }
+              div[style*="rgba(30, 41, 59, 0.95)"]::-webkit-scrollbar-thumb {
+                background: rgba(96, 165, 250, 0.5);
+                border-radius: 3px;
+              }
+              div[style*="rgba(30, 41, 59, 0.95)"]::-webkit-scrollbar-thumb:hover {
+                background: rgba(96, 165, 250, 0.7);
+              }
+            `}</style>
           </div>
-          
-          <MapContainer 
-            center={centerPosition} 
-            zoom={6} 
+
+          <MapContainer
+            center={centerPosition}
+            zoom={6}
             style={{ height: '100%', width: '100%' }}
           >
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <MapUpdater incidents={filteredIncidents} />
+            {!targetIncident && <MapUpdater incidents={filteredIncidents} />}
+            <IncidentFocus targetIncident={targetIncident} markerRefs={markerRefs} />
 
             {showClusters ? (
               <MarkerClusterGroup
@@ -560,47 +815,237 @@ const MapView = () => {
               >
                 {filteredIncidents.map(incident => {
                   const statut = getStatut(incident.statut);
-                  
+
                   // Vérifier que les coordonnées sont valides
                   const lat = parseFloat(incident.latitude);
                   const lng = parseFloat(incident.longitude);
-                  
+
                   if (isNaN(lat) || isNaN(lng)) {
-                    console.warn(`Incident ${incident.id} a des coordonnées invalides:`, {lat, lng});
+                    console.warn(`Incident ${incident.id} a des coordonnées invalides:`, { lat, lng });
                     return null; // Ne pas afficher ce marqueur
                   }
-                  
+
                   return (
-                    <Marker 
+                    <Marker
                       key={incident.id}
                       position={[lat, lng]}
                       icon={getIncidentIcon(incident.typeIncident, incident.statut)}
+                      ref={el => markerRefs.current[incident.id] = el}
                     >
-                      <Popup>
-                        <div style={{ minWidth: '250px' }}>
-                          <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>
-                            Incident #{incident.id}
-                          </h3>
-                          <div style={{ marginBottom: '0.5rem' }}>
-                            <strong>Secteur:</strong> {getSecteurNom(incident.secteurId)}
+                      <Popup maxWidth={320} minWidth={280}>
+                        <div style={{
+                          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                          background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                          padding: '0',
+                          margin: '-15px',
+                          borderRadius: '12px',
+                          overflow: 'hidden',
+                          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+                        }}>
+                          {/* Header avec gradient */}
+                          <div style={{
+                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            padding: '16px',
+                            borderBottom: '3px solid rgba(255, 255, 255, 0.1)',
+                          }}>
+                            <div style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{
+                                background: 'rgba(255, 255, 255, 0.2)',
+                                color: '#fff',
+                                padding: '4px 12px',
+                                borderRadius: '20px',
+                                fontSize: '0.75rem',
+                                fontWeight: '700',
+                                backdropFilter: 'blur(10px)',
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
+                              }}>
+                                #{incident.id}
+                              </span>
+                              <span style={{
+                                background: statut.color === 'success' ? '#10b981' :
+                                  statut.color === 'warning' ? '#f59e0b' :
+                                    statut.color === 'danger' ? '#ef4444' : '#6b7280',
+                                color: '#fff',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                fontSize: '0.7rem',
+                                fontWeight: '600',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px',
+                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
+                              }}>
+                                {statut.label}
+                              </span>
+                            </div>
+                            <h3 style={{
+                              fontSize: '1.1rem',
+                              fontWeight: '700',
+                              margin: '0',
+                              color: '#fff',
+                              textShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
+                            }}>
+                              {incident.titre || incident.typeIncident}
+                            </h3>
                           </div>
-                          <div style={{ marginBottom: '0.5rem' }}>
-                            <strong>Type:</strong> {incident.typeIncident}
-                          </div>
-                          <div style={{ marginBottom: '0.5rem' }}>
-                            <strong>Description:</strong> {incident.description}
-                          </div>
-                          <div style={{ marginBottom: '0.5rem' }}>
-                            <strong>Province:</strong> {incident.province}
-                          </div>
-                          <div style={{ marginBottom: '0.5rem' }}>
-                            <strong>Statut:</strong>{' '}
-                            <span className={`badge badge-${statut.color}`}>
-                              {statut.label}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                            {formatDate(incident.dateDeclaration)}
+
+                          {/* Corps */}
+                          <div style={{ padding: '16px' }}>
+                            {/* Type d'incident avec icône */}
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              marginBottom: '12px',
+                              padding: '10px',
+                              background: 'rgba(59, 130, 246, 0.1)',
+                              borderRadius: '8px',
+                              border: '1px solid rgba(59, 130, 246, 0.2)'
+                            }}>
+                              <span style={{ fontSize: '1.2rem' }}>
+                                {incident.typeIncident === 'Voirie' ? '🛣️' :
+                                  incident.typeIncident === 'Éclairage public' ? '💡' :
+                                    incident.typeIncident === 'Assainissement' ? '🚰' :
+                                      incident.typeIncident === 'Espaces verts' ? '🌳' :
+                                        incident.typeIncident === 'Propreté' ? '🧹' :
+                                          incident.typeIncident === 'Sécurité' ? '🛡️' :
+                                            incident.typeIncident === 'Transport' ? '🚌' : '📍'}
+                              </span>
+                              <div style={{ flex: 1 }}>
+                                <div style={{
+                                  fontSize: '0.7rem',
+                                  color: 'rgba(147, 197, 253, 0.8)',
+                                  marginBottom: '2px',
+                                  fontWeight: '600'
+                                }}>
+                                  CATÉGORIE
+                                </div>
+                                <div style={{
+                                  fontSize: '0.9rem',
+                                  color: '#fff',
+                                  fontWeight: '600'
+                                }}>
+                                  {incident.typeIncident}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Description */}
+                            {incident.description && (
+                              <div style={{
+                                marginBottom: '12px',
+                                padding: '10px',
+                                background: 'rgba(51, 65, 85, 0.5)',
+                                borderRadius: '8px',
+                                borderLeft: '3px solid #3b82f6'
+                              }}>
+                                <div style={{
+                                  fontSize: '0.85rem',
+                                  color: 'rgba(226, 232, 240, 0.9)',
+                                  lineHeight: '1.5',
+                                  maxHeight: '60px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 3,
+                                  WebkitBoxOrient: 'vertical'
+                                }}>
+                                  {incident.description}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Infos en grille */}
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 1fr',
+                              gap: '8px',
+                              marginBottom: '12px'
+                            }}>
+                              {/* Secteur */}
+                              <div style={{
+                                padding: '8px',
+                                background: 'rgba(51, 65, 85, 0.4)',
+                                borderRadius: '6px'
+                              }}>
+                                <div style={{
+                                  fontSize: '0.65rem',
+                                  color: 'rgba(148, 163, 184, 0.9)',
+                                  marginBottom: '4px',
+                                  fontWeight: '600',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px'
+                                }}>
+                                  Secteur
+                                </div>
+                                <div style={{
+                                  fontSize: '0.8rem',
+                                  color: '#fff',
+                                  fontWeight: '600'
+                                }}>
+                                  {getSecteurNom(incident.secteurId)}
+                                </div>
+                              </div>
+
+                              {/* Province */}
+                              <div style={{
+                                padding: '8px',
+                                background: 'rgba(51, 65, 85, 0.4)',
+                                borderRadius: '6px'
+                              }}>
+                                <div style={{
+                                  fontSize: '0.65rem',
+                                  color: 'rgba(148, 163, 184, 0.9)',
+                                  marginBottom: '4px',
+                                  fontWeight: '600',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.5px'
+                                }}>
+                                  Province
+                                </div>
+                                <div style={{
+                                  fontSize: '0.8rem',
+                                  color: '#fff',
+                                  fontWeight: '600'
+                                }}>
+                                  {incident.province || 'N/A'}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Date avec icône */}
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px',
+                              background: 'rgba(59, 130, 246, 0.08)',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(59, 130, 246, 0.15)'
+                            }}>
+                              <span style={{ fontSize: '0.9rem' }}>📅</span>
+                              <div>
+                                <div style={{
+                                  fontSize: '0.65rem',
+                                  color: 'rgba(147, 197, 253, 0.7)',
+                                  fontWeight: '600'
+                                }}>
+                                  DÉCLARÉ LE
+                                </div>
+                                <div style={{
+                                  fontSize: '0.8rem',
+                                  color: 'rgba(226, 232, 240, 0.95)',
+                                  fontWeight: '500'
+                                }}>
+                                  {formatDate(incident.dateDeclaration)}
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </Popup>
@@ -611,47 +1056,237 @@ const MapView = () => {
             ) : (
               filteredIncidents.map(incident => {
                 const statut = getStatut(incident.statut);
-                
+
                 // Vérifier que les coordonnées sont valides
                 const lat = parseFloat(incident.latitude);
                 const lng = parseFloat(incident.longitude);
-                
+
                 if (isNaN(lat) || isNaN(lng)) {
-                  console.warn(`Incident ${incident.id} a des coordonnées invalides:`, {lat, lng});
+                  console.warn(`Incident ${incident.id} a des coordonnées invalides:`, { lat, lng });
                   return null; // Ne pas afficher ce marqueur
                 }
-                
+
                 return (
-                  <Marker 
+                  <Marker
                     key={incident.id}
                     position={[lat, lng]}
                     icon={getIncidentIcon(incident.typeIncident, incident.statut)}
+                    ref={el => markerRefs.current[incident.id] = el}
                   >
-                    <Popup>
-                      <div style={{ minWidth: '250px' }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>
-                          Incident #{incident.id}
-                        </h3>
-                        <div style={{ marginBottom: '0.5rem' }}>
-                          <strong>Secteur:</strong> {getSecteurNom(incident.secteurId)}
+                    <Popup maxWidth={320} minWidth={280}>
+                      <div style={{
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                        background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                        padding: '0',
+                        margin: '-15px',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+                      }}>
+                        {/* Header avec gradient */}
+                        <div style={{
+                          background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                          padding: '16px',
+                          borderBottom: '3px solid rgba(255, 255, 255, 0.1)',
+                        }}>
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '8px'
+                          }}>
+                            <span style={{
+                              background: 'rgba(255, 255, 255, 0.2)',
+                              color: '#fff',
+                              padding: '4px 12px',
+                              borderRadius: '20px',
+                              fontSize: '0.75rem',
+                              fontWeight: '700',
+                              backdropFilter: 'blur(10px)',
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                              textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
+                            }}>
+                              #{incident.id}
+                            </span>
+                            <span style={{
+                              background: statut.color === 'success' ? '#10b981' :
+                                statut.color === 'warning' ? '#f59e0b' :
+                                  statut.color === 'danger' ? '#ef4444' : '#6b7280',
+                              color: '#fff',
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              fontSize: '0.7rem',
+                              fontWeight: '600',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
+                            }}>
+                              {statut.label}
+                            </span>
+                          </div>
+                          <h3 style={{
+                            fontSize: '1.1rem',
+                            fontWeight: '700',
+                            margin: '0',
+                            color: '#fff',
+                            textShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
+                          }}>
+                            {incident.titre || incident.typeIncident}
+                          </h3>
                         </div>
-                        <div style={{ marginBottom: '0.5rem' }}>
-                          <strong>Type:</strong> {incident.typeIncident}
-                        </div>
-                        <div style={{ marginBottom: '0.5rem' }}>
-                          <strong>Description:</strong> {incident.description}
-                        </div>
-                        <div style={{ marginBottom: '0.5rem' }}>
-                          <strong>Province:</strong> {incident.province}
-                        </div>
-                        <div style={{ marginBottom: '0.5rem' }}>
-                          <strong>Statut:</strong>{' '}
-                          <span className={`badge badge-${statut.color}`}>
-                            {statut.label}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                          {formatDate(incident.dateDeclaration)}
+
+                        {/* Corps */}
+                        <div style={{ padding: '16px' }}>
+                          {/* Type d'incident avec icône */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            marginBottom: '12px',
+                            padding: '10px',
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(59, 130, 246, 0.2)'
+                          }}>
+                            <span style={{ fontSize: '1.2rem' }}>
+                              {incident.typeIncident === 'Voirie' ? '🛣️' :
+                                incident.typeIncident === 'Éclairage public' ? '💡' :
+                                  incident.typeIncident === 'Assainissement' ? '🚰' :
+                                    incident.typeIncident === 'Espaces verts' ? '🌳' :
+                                      incident.typeIncident === 'Propreté' ? '🧹' :
+                                        incident.typeIncident === 'Sécurité' ? '🛡️' :
+                                          incident.typeIncident === 'Transport' ? '🚌' : '📍'}
+                            </span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{
+                                fontSize: '0.7rem',
+                                color: 'rgba(147, 197, 253, 0.8)',
+                                marginBottom: '2px',
+                                fontWeight: '600'
+                              }}>
+                                CATÉGORIE
+                              </div>
+                              <div style={{
+                                fontSize: '0.9rem',
+                                color: '#fff',
+                                fontWeight: '600'
+                              }}>
+                                {incident.typeIncident}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Description */}
+                          {incident.description && (
+                            <div style={{
+                              marginBottom: '12px',
+                              padding: '10px',
+                              background: 'rgba(51, 65, 85, 0.5)',
+                              borderRadius: '8px',
+                              borderLeft: '3px solid #3b82f6'
+                            }}>
+                              <div style={{
+                                fontSize: '0.85rem',
+                                color: 'rgba(226, 232, 240, 0.9)',
+                                lineHeight: '1.5',
+                                maxHeight: '60px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: 'vertical'
+                              }}>
+                                {incident.description}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Infos en grille */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '8px',
+                            marginBottom: '12px'
+                          }}>
+                            {/* Secteur */}
+                            <div style={{
+                              padding: '8px',
+                              background: 'rgba(51, 65, 85, 0.4)',
+                              borderRadius: '6px'
+                            }}>
+                              <div style={{
+                                fontSize: '0.65rem',
+                                color: 'rgba(148, 163, 184, 0.9)',
+                                marginBottom: '4px',
+                                fontWeight: '600',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px'
+                              }}>
+                                Secteur
+                              </div>
+                              <div style={{
+                                fontSize: '0.8rem',
+                                color: '#fff',
+                                fontWeight: '600'
+                              }}>
+                                {getSecteurNom(incident.secteurId)}
+                              </div>
+                            </div>
+
+                            {/* Province */}
+                            <div style={{
+                              padding: '8px',
+                              background: 'rgba(51, 65, 85, 0.4)',
+                              borderRadius: '6px'
+                            }}>
+                              <div style={{
+                                fontSize: '0.65rem',
+                                color: 'rgba(148, 163, 184, 0.9)',
+                                marginBottom: '4px',
+                                fontWeight: '600',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px'
+                              }}>
+                                Province
+                              </div>
+                              <div style={{
+                                fontSize: '0.8rem',
+                                color: '#fff',
+                                fontWeight: '600'
+                              }}>
+                                {incident.province || 'N/A'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Date avec icône */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px',
+                            background: 'rgba(59, 130, 246, 0.08)',
+                            borderRadius: '6px',
+                            border: '1px solid rgba(59, 130, 246, 0.15)'
+                          }}>
+                            <span style={{ fontSize: '0.9rem' }}>📅</span>
+                            <div>
+                              <div style={{
+                                fontSize: '0.65rem',
+                                color: 'rgba(147, 197, 253, 0.7)',
+                                fontWeight: '600'
+                              }}>
+                                DÉCLARÉ LE
+                              </div>
+                              <div style={{
+                                fontSize: '0.8rem',
+                                color: 'rgba(226, 232, 240, 0.95)',
+                                fontWeight: '500'
+                              }}>
+                                {formatDate(incident.dateDeclaration)}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </Popup>

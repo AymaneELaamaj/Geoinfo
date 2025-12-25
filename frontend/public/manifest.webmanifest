@@ -1,12 +1,20 @@
 {
-  "name": "GeoInfo - Gestion des Incidents",
-  "short_name": "GeoInfo",
-  "description": "Application de gestion des incidents géolocalisés",
+  "name": "CityAlert - Signalement d'Incidents Urbains",
+  "short_name": "CityAlert",
+  "description": "Application de signalement d'incidents urbains - Alertez et suivez les problèmes de votre ville en temps réel",
   "start_url": "/",
+  "scope": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#3b82f6",
+  "theme_color": "#1e3a8a",
   "orientation": "portrait-primary",
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
+  "lang": "fr",
+  "dir": "ltr",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -19,6 +27,47 @@
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "CityAlert - Accueil"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Déclarer un incident",
+      "short_name": "Déclarer",
+      "description": "Signaler un nouvel incident",
+      "url": "/declarer-incident",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Voir la carte",
+      "short_name": "Carte",
+      "description": "Voir les incidents sur la carte",
+      "url": "/carte",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

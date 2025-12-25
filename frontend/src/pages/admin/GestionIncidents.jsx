@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { 
-  Check, 
-  X, 
-  Eye, 
+import {
+  Check,
+  X,
+  Eye,
   Clock,
   AlertTriangle,
   Filter,
@@ -23,6 +23,7 @@ const GestionIncidents = () => {
   const [modalType, setModalType] = useState(''); // 'reject', 'details', 'assign'
 
   useEffect(() => {
+    console.log('🔍 GestionIncidents component loaded - VERSION 2.0');
     fetchIncidents();
   }, []);
 
@@ -89,11 +90,11 @@ const GestionIncidents = () => {
       z-index: 1000;
       animation: slideIn 0.3s ease;
     `;
-    
+
     if (type === 'success') notification.style.backgroundColor = '#10b981';
     else if (type === 'error') notification.style.backgroundColor = '#ef4444';
     else if (type === 'warning') notification.style.backgroundColor = '#f59e0b';
-    
+
     document.body.appendChild(notification);
     setTimeout(() => {
       notification.remove();
@@ -118,7 +119,7 @@ const GestionIncidents = () => {
       REJETE: { color: 'red', text: 'Rejeté' },
       VALIDE: { color: 'green', text: 'Validé' }
     };
-    
+
     const s = statuts[statut] || { color: 'gray', text: statut };
     return (
       <span className={`status-badge status-${s.color}`}>
@@ -185,14 +186,14 @@ const GestionIncidents = () => {
           <div className="empty-state">
             <AlertTriangle />
             <h3>
-              {activeTab === 'en-attente' 
-                ? 'Aucun incident en attente' 
+              {activeTab === 'en-attente'
+                ? 'Aucun incident en attente'
                 : 'Aucun incident rejeté'
               }
             </h3>
             <p>
-              {activeTab === 'en-attente' 
-                ? 'Tous les incidents ont été traités.' 
+              {activeTab === 'en-attente'
+                ? 'Tous les incidents ont été traités.'
                 : 'Aucun incident n\'a été rejeté.'
               }
             </p>
@@ -205,12 +206,12 @@ const GestionIncidents = () => {
                   <h3>{incident.titre}</h3>
                   {getStatutBadge(incident.statut)}
                 </div>
-                
+
                 <div className="incident-body">
                   <p className="incident-description">
                     {incident.description}
                   </p>
-                  
+
                   <div className="incident-meta">
                     <div className="meta-item">
                       <strong>Secteur:</strong> {incident.secteur?.nomSecteur || 'Non spécifié'}
@@ -227,16 +228,26 @@ const GestionIncidents = () => {
                       </div>
                     )}
                   </div>
-                  
+
                   {incident.photoUrl && (
                     <div className="incident-photo">
                       <img src={incident.photoUrl} alt="Incident" />
                     </div>
                   )}
                 </div>
-                
+
                 {activeTab === 'en-attente' && (
                   <div className="incident-actions">
+                    {/* Bouton Détails - Premier et mis en évidence */}
+                    <button
+                      onClick={() => openModal('details', incident)}
+                      className="btn-details"
+                      title="Voir tous les détails de l'incident"
+                    >
+                      <Eye />
+                      Voir Détails
+                    </button>
+
                     <button
                       onClick={() => validerIncident(incident.id)}
                       className="btn-validate"
@@ -245,7 +256,7 @@ const GestionIncidents = () => {
                       <Check />
                       Valider
                     </button>
-                    
+
                     <button
                       onClick={() => openModal('reject', incident)}
                       className="btn-reject"
@@ -253,24 +264,6 @@ const GestionIncidents = () => {
                     >
                       <X />
                       Rejeter
-                    </button>
-                    
-                    <button
-                      onClick={() => openModal('details', incident)}
-                      className="btn-details"
-                      title="Voir les détails"
-                    >
-                      <Eye />
-                      Détails
-                    </button>
-                    
-                    <button
-                      onClick={() => openModal('assign', incident)}
-                      className="btn-assign"
-                      title="Affecter à un professionnel"
-                    >
-                      <Users />
-                      Affecter
                     </button>
                   </div>
                 )}
@@ -288,13 +281,13 @@ const GestionIncidents = () => {
               <h2>Rejeter l'incident</h2>
               <button className="close-btn" onClick={closeModal}>×</button>
             </div>
-            
+
             <div className="modal-body">
               <div className="incident-summary">
                 <h3>{selectedIncident.titre}</h3>
                 <p>{selectedIncident.description}</p>
               </div>
-              
+
               <div className="form-group">
                 <label htmlFor="motifRejet">Motif du rejet *</label>
                 <textarea
@@ -307,7 +300,7 @@ const GestionIncidents = () => {
                 />
               </div>
             </div>
-            
+
             <div className="modal-footer">
               <button onClick={closeModal} className="btn-cancel">
                 Annuler
@@ -320,60 +313,161 @@ const GestionIncidents = () => {
         </div>
       )}
 
-      {/* Modal de détails */}
+      {/* Modal de détails - Version complète */}
       {showModal && modalType === 'details' && selectedIncident && (
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal modal-large" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Détails de l'incident</h2>
+              <h2>📋 Détails Complets de l'Incident</h2>
               <button className="close-btn" onClick={closeModal}>×</button>
             </div>
-            
+
             <div className="modal-body">
               <div className="incident-details">
-                <div className="detail-group">
-                  <label>Titre</label>
-                  <p>{selectedIncident.titre}</p>
-                </div>
-                
-                <div className="detail-group">
-                  <label>Description</label>
-                  <p>{selectedIncident.description}</p>
-                </div>
-                
-                <div className="detail-row">
+                {/* Informations principales */}
+                <div className="details-section">
+                  <h3>📌 Informations Principales</h3>
+
                   <div className="detail-group">
-                    <label>Secteur</label>
-                    <p>{selectedIncident.secteur?.nomSecteur || 'Non spécifié'}</p>
+                    <label>Titre</label>
+                    <p>{selectedIncident.titre}</p>
                   </div>
-                  
+
                   <div className="detail-group">
-                    <label>Date de création</label>
-                    <p>{new Date(selectedIncident.dateCreation).toLocaleString('fr-FR')}</p>
+                    <label>Description</label>
+                    <p>{selectedIncident.description}</p>
+                  </div>
+
+                  <div className="detail-row">
+                    <div className="detail-group">
+                      <label>Type d'incident</label>
+                      <p className="type-badge">{selectedIncident.typeIncident || 'Non spécifié'}</p>
+                    </div>
+
+                    <div className="detail-group">
+                      <label>Statut</label>
+                      {getStatutBadge(selectedIncident.statut)}
+                    </div>
                   </div>
                 </div>
-                
-                <div className="detail-group">
-                  <label>Localisation</label>
-                  <p>{selectedIncident.localisation || 'Non spécifiée'}</p>
+
+                {/* Localisation */}
+                <div className="details-section">
+                  <h3>📍 Localisation</h3>
+
+
+
+                  <div className="detail-row">
+                    <div className="detail-group">
+                      <label>Secteur</label>
+                      <p>{selectedIncident.secteur?.nomSecteur || 'Non spécifié'}</p>
+                    </div>
+
+                    <div className="detail-group">
+                      <label>Province</label>
+                      <p>{selectedIncident.province || 'Non spécifiée'}</p>
+                    </div>
+                  </div>
+
+                  <div className="detail-row">
+                    <div className="detail-group">
+                      <label>Latitude</label>
+                      <p className="coordinate">{selectedIncident.latitude?.toFixed(6) || 'N/A'}</p>
+                    </div>
+
+                    <div className="detail-group">
+                      <label>Longitude</label>
+                      <p className="coordinate">{selectedIncident.longitude?.toFixed(6) || 'N/A'}</p>
+                    </div>
+                  </div>
+
+                  {selectedIncident.latitude && selectedIncident.longitude && (
+                    <div className="detail-group">
+                      <label>📍 Voir sur Google Maps</label>
+                      <a
+                        href={`https://www.google.com/maps?q=${selectedIncident.latitude},${selectedIncident.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="maps-link"
+                      >
+                        Ouvrir dans Google Maps →
+                      </a>
+                    </div>
+                  )}
                 </div>
-                
+
+                {/* Photo */}
                 {selectedIncident.photoUrl && (
-                  <div className="detail-group">
-                    <label>Photo</label>
-                    <div className="incident-photo-large">
-                      <img src={selectedIncident.photoUrl} alt="Incident" />
+                  <div className="details-section">
+                    <h3>📷 Photo de l'incident</h3>
+                    <div className="detail-group">
+                      <div className="incident-photo-large">
+                        <img src={selectedIncident.photoUrl} alt="Incident" />
+                      </div>
                     </div>
                   </div>
                 )}
-                
-                <div className="detail-group">
-                  <label>Statut</label>
-                  {getStatutBadge(selectedIncident.statut)}
+
+                {/* Informations techniques */}
+                <div className="details-section">
+                  <h3>🔧 Informations Techniques</h3>
+
+                  <div className="detail-row">
+                    <div className="detail-group">
+                      <label>Date de création</label>
+                      <p>{new Date(selectedIncident.dateCreation).toLocaleString('fr-FR')}</p>
+                    </div>
+
+                    <div className="detail-group">
+                      <label>ID de l'incident</label>
+                      <p className="incident-id">#{selectedIncident.id}</p>
+                    </div>
+                  </div>
+
+                  {selectedIncident.declarantEmail && (
+                    <div className="detail-group">
+                      <label>Déclaré par (email)</label>
+                      <p>{selectedIncident.declarantEmail}</p>
+                    </div>
+                  )}
+
+                  {selectedIncident.deviceId && (
+                    <div className="detail-group">
+                      <label>ID Appareil (UUID anonyme)</label>
+                      <p className="device-id">{selectedIncident.deviceId}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions rapides depuis le modal */}
+                <div className="details-section">
+                  <h3>⚡ Actions Rapides</h3>
+                  <div className="modal-actions">
+                    <button
+                      onClick={() => {
+                        closeModal();
+                        validerIncident(selectedIncident.id);
+                      }}
+                      className="btn-validate"
+                    >
+                      <Check />
+                      Valider cet incident
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setModalType('reject');
+                      }}
+                      className="btn-reject"
+                    >
+                      <X />
+                      Rejeter cet incident
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-            
+
             <div className="modal-footer">
               <button onClick={closeModal} className="btn-cancel">
                 Fermer

@@ -1,4 +1,4 @@
-# 🗺️ GeoInfo - Plateforme de Gestion des Incidents Citoyens
+# 🚨 CityAlert - Plateforme de Signalement d'Incidents Citoyens
 
 Une plateforme collaborative permettant aux citoyens de signaler des incidents urbains et aux professionnels de les gérer efficacement.
 
@@ -16,7 +16,7 @@ Une plateforme collaborative permettant aux citoyens de signaler des incidents u
 
 ## 🎯 Aperçu
 
-GeoInfo est une solution complète de gestion d'incidents citoyens avec trois niveaux d'accès :
+CityAlert est une solution complète de signalement et gestion d'incidents citoyens avec trois niveaux d'accès :
 
 ### 👤 Public
 - Consultation des incidents sur carte interactive

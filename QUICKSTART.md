@@ -1,4 +1,4 @@
-# 🚀 Guide de Démarrage Rapide - GeoInfo
+# 🚀 Guide de Démarrage Rapide - CityAlert
 
 ## Installation en 5 Minutes
 

@@ -1,49 +1,176 @@
 import { useState, useEffect } from 'react';
-import { 
-  MapPin, 
-  Camera, 
-  Upload, 
-  Send, 
+import {
+  MapPin,
+  Camera,
+  Upload,
+  Send,
   AlertCircle,
   CheckCircle2,
   Info,
-  User,
   MapIcon,
   FileText,
-  Tag
+  Tag,
+  ShieldAlert,
+  WifiOff,
+  Clock
 } from 'lucide-react';
-import { citoyensAPI, secteursAPI } from '../services/api';
-import { PROVINCES_MAP } from '../data/constants';
+import { Link } from 'react-router-dom';
+import { publicAPI, secteursAPI } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useOfflineQueue } from '../hooks/useOfflineQueue';
+import { useCitizenDeviceId } from '../hooks/useCitizenDeviceId';
+import PWAGuard from '../components/PWAGuard';
+import { useMemo } from 'react';
+
+// ============================================
+// CONSTANTES - Suggestions & Exemples
+// ============================================
+
+// Suggestions de titres par type d'incident
+const TITRE_SUGGESTIONS = {
+  'Voirie': [
+    'Nid-de-poule dangereux sur la chaussée',
+    'Chaussée dégradée nécessitant réparation',
+    'Trottoir endommagé',
+    'Revêtement routier abîmé'
+  ],
+  'Éclairage public': [
+    'Lampadaire éteint',
+    'Éclairage public défaillant',
+    'Ampoule cassée sur lampadaire',
+    'Absence d\'éclairage nocturne'
+  ],
+  'Assainissement': [
+    'Fuite d\'eau sur la voie publique',
+    'Égout bouché',
+    'Débordement de canalisation',
+    'Odeurs d\'assainissement'
+  ],
+  'Espaces verts': [
+    'Arbre dangereux menaçant de tomber',
+    'Branches cassées',
+    'Jardin public mal entretenu',
+    'Haie obstruant la visibilité'
+  ],
+  'Propreté': [
+    'Dépôt sauvage de déchets',
+    'Conteneur débordant',
+    'Graffiti sur mur public',
+    'Détritus non ramassés'
+  ],
+  'Sécurité': [
+    'Signalisation routière manquante',
+    'Panneau de signalisation endommagé',
+    'Passage piéton effacé',
+    'Barrière de sécurité défaillante'
+  ],
+  'Transport': [
+    'Arrêt de bus endommagé',
+    'Abribus cassé',
+    'Signalisation transport manquante'
+  ]
+};
+
+// Exemples de description par secteur
+const DESCRIPTION_EXEMPLES = {
+  'Infrastructure': 'Ex: Localisation précise, dimensions du dégât, danger immédiat pour la circulation, fréquentation du lieu...',
+  'Environnement': 'Ex: Type de pollution, quantité estimée, impact sur les résidents, présence d\'odeurs...',
+  'Sécurité': 'Ex: Nature exacte du danger, visibilité réduite, fréquentation piétonne, risque d\'accident...',
+  'Services Publics': 'Ex: Type de dysfonctionnement, depuis quand, nombre de personnes affectées...',
+  'Transport': 'Ex: Numéro de ligne concernée, impact sur les usagers, alternative disponible...',
+  'Urbanisme': 'Ex: Impact visuel, conformité urbanistique, gêne pour les riverains...',
+  'Santé': 'Ex: Niveau d\'urgence, personnes à risque, mesures déjà prises...'
+};
+
+// Mapping Secteur → Catégories (pour filtrage intelligent)
+const SECTEUR_CATEGORIES = {
+  'Infrastructure': ['Voirie', 'Assainissement', 'Éclairage public'],
+  'Environnement': ['Espaces verts', 'Propreté'],
+  'Sécurité': ['Sécurité', 'Éclairage public'],
+  'Services Publics': ['Assainissement', 'Éclairage public'],
+  'Transport': ['Transport'],
+  'Urbanisme': ['Voirie', 'Espaces verts'],
+  'Santé': ['Propreté', 'Espaces verts']
+};
+
+// Toutes les catégories disponibles
+const ALL_CATEGORIES = ['Voirie', 'Éclairage public', 'Assainissement', 'Espaces verts', 'Propreté', 'Sécurité', 'Transport', 'Autre'];
+
 
 /**
  * Page de déclaration d'incident
- * Utilise l'API backend pour créer un nouvel incident
+ * Utilise l'API publique pour créer un nouvel incident anonyme
+ * RESTRICTION: Accessible uniquement en mode PWA (standalone app)
  */
 const DeclarerIncident = () => {
+  const { user, isAuthenticated } = useAuth();
+  const { isOnline } = useOnlineStatus();
+  const { deviceId } = useCitizenDeviceId(); // Identifiant anonyme du citoyen
+
+  // Hook pour la file d'attente hors-ligne
+  const submitIncident = async (incidentData, photo) => {
+    return publicAPI.declarerIncidentAnonymous(incidentData, photo);
+  };
+  const {
+    queueLength,
+    hasQueuedItems,
+    addToQueue,
+    isSyncing
+  } = useOfflineQueue(submitIncident);
+
+  // Vérification du rôle - ADMIN et PROFESSIONNEL ne peuvent pas déclarer
+  const isBlocked = isAuthenticated() &&
+    (user?.role === 'ADMIN' || user?.role === 'PROFESSIONNEL' ||
+      user?.role === 'admin' || user?.role === 'professionnel');
+
   const [formData, setFormData] = useState({
     titre: '',
     description: '',
     typeIncident: '',
-    latitude: '',
-    longitude: '',
-    secteurId: '',
-    provinceId: '',
-    ime: ''
+    secteurId: ''
   });
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoMetadata, setPhotoMetadata] = useState(null); // GPS data captured with photo
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [secteurs, setSecteurs] = useState([]);
   const [fieldErrors, setFieldErrors] = useState({});
-  const [isLocationLoading, setIsLocationLoading] = useState(false);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [isFormValid, setIsFormValid] = useState(false);
+  const [savedOffline, setSavedOffline] = useState(false);
+
+  // Si l'utilisateur est bloqué, afficher un message d'erreur
+  if (isBlocked) {
+    return (
+      <div className="page">
+        <div className="container" style={{ maxWidth: '600px', textAlign: 'center', paddingTop: '4rem' }}>
+          <div className="card" style={{ padding: '3rem' }}>
+            <ShieldAlert size={64} style={{ color: 'var(--danger-color)', marginBottom: '1.5rem' }} />
+            <h2 style={{ marginBottom: '1rem', color: 'var(--danger-color)' }}>Accès Refusé</h2>
+            <p style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)' }}>
+              En tant que <strong>{user?.role}</strong>, vous n'êtes pas autorisé à déclarer des incidents.
+              <br /><br />
+              Seuls les <strong>citoyens</strong> peuvent signaler de nouveaux incidents.
+            </p>
+            <Link
+              to={user?.role === 'ADMIN' || user?.role === 'admin' ? '/admin' : '/pro'}
+              className="btn btn-primary"
+            >
+              Retour à mon espace
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const validateField = (name, value) => {
     const errors = {};
-    
+
     switch (name) {
       case 'titre':
         if (!value.trim()) errors.titre = 'Le titre est obligatoire';
@@ -60,14 +187,13 @@ const DeclarerIncident = () => {
       case 'secteurId':
         if (!value) errors.secteurId = 'Le secteur est obligatoire';
         break;
-      case 'ime':
-        if (!value) errors.ime = 'L\'IME est obligatoire';
-        else if (!/^\d{8,12}$/.test(value)) errors.ime = 'L\'IME doit contenir entre 8 et 12 chiffres';
+      case 'photo':
+        if (!value) errors.photo = 'La photo est obligatoire';
         break;
       default:
         break;
     }
-    
+
     return errors;
   };
 
@@ -77,7 +203,16 @@ const DeclarerIncident = () => {
       ...prev,
       [name]: value
     }));
-    
+
+    // Si secteur change, réinitialiser la catégorie
+    if (name === 'secteurId' && formData.typeIncident) {
+      const secteur = secteurs.find(s => s.id == value);
+      const allowedCategories = SECTEUR_CATEGORIES[secteur?.nom] || ALL_CATEGORIES;
+      if (!allowedCategories.includes(formData.typeIncident)) {
+        setFormData(prev => ({ ...prev, typeIncident: '' }));
+      }
+    }
+
     // Validation en temps réel
     const fieldError = validateField(name, value);
     setFieldErrors(prev => ({
@@ -85,21 +220,306 @@ const DeclarerIncident = () => {
       ...fieldError,
       [name]: fieldError[name] || undefined
     }));
-    
+
     // Effacer les messages globaux
     if (error) setError('');
     if (message) setMessage('');
   };
 
-  const handlePhotoChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setPhoto(file);
-      // Créer une prévisualisation
-      const reader = new FileReader();
-      reader.onload = (e) => setPhotoPreview(e.target.result);
-      reader.readAsDataURL(file);
+  // Fonction pour ouvrir la caméra directement (sans galerie)
+  const openCamera = async () => {
+    try {
+      // Vérifier si l'API est supportée
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setFieldErrors(prev => ({ ...prev, photo: 'Votre appareil ne supporte pas la capture photo' }));
+        return;
+      }
+
+      // Demander l'accès à la caméra (arrière de préférence)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }, // Caméra arrière sur mobile
+        audio: false
+      });
+
+      // Créer un élément vidéo pour afficher le flux de la caméra
+      const video = document.createElement('video');
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('autoplay', 'true');
+      video.muted = true; // Important pour autoplay sur certains navigateurs
+
+      video.style.cssText = `
+        width: 100%;
+        height: 70vh;
+        max-width: 100vw;
+        object-fit: cover;
+        background: black;
+      `;
+
+      // Créer une interface modale pour la caméra
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: black;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      `;
+
+      // Indicateur GPS en temps réel (en haut)
+      const gpsIndicator = document.createElement('div');
+      gpsIndicator.style.cssText = `
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        z-index: 10001;
+        backdrop-filter: blur(10px);
+      `;
+      gpsIndicator.innerHTML = '📍 Recherche GPS...';
+
+      const buttonContainer = document.createElement('div');
+      buttonContainer.style.cssText = `
+        position: absolute;
+        bottom: 30px;
+        display: flex;
+        gap: 20px;
+        padding: 20px;
+      `;
+
+      const captureBtn = document.createElement('button');
+      captureBtn.textContent = '📸 Prendre la photo';
+      captureBtn.disabled = false;
+      captureBtn.style.cssText = `
+        background: #3b82f6;
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        border-radius: 50px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        opacity: 1;
+      `;
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = '✕ Annuler';
+      cancelBtn.style.cssText = `
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        border-radius: 50px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+      `;
+
+      buttonContainer.appendChild(captureBtn);
+      buttonContainer.appendChild(cancelBtn);
+      modal.appendChild(gpsIndicator);
+      modal.appendChild(video);
+      modal.appendChild(buttonContainer);
+      document.body.appendChild(modal);
+
+      // Attacher le flux vidéo et démarrer immédiatement
+      video.srcObject = stream;
+
+      // Attendre que les métadonnées soient chargées
+      video.addEventListener('loadedmetadata', () => {
+        console.log('🎥 Métadonnées vidéo chargées:', {
+          width: video.videoWidth,
+          height: video.videoHeight
+        });
+
+        // Appliquer les styles après chargement des métadonnées
+        video.style.width = '100%';
+        video.style.height = '70vh';
+        video.style.objectFit = 'cover';
+        video.style.display = 'block';
+        video.style.visibility = 'visible';
+        video.style.opacity = '1';
+        video.style.zIndex = '1';
+        video.style.transform = 'translateZ(0)';
+        video.style.webkitTransform = 'translateZ(0)';
+        video.style.backfaceVisibility = 'hidden';
+
+        console.log('✅ Styles vidéo appliqués après métadonnées');
+      });
+
+      // Démarrer la vidéo
+      video.play().then(() => {
+        console.log('📹 Vidéo play() réussie');
+      }).catch(err => {
+        console.error('Erreur play():', err);
+      });
+
+      console.log('📹 Flux caméra attaché, en attente métadonnées');
+
+      // 🎯 SURVEILLANCE GPS EN CONTINU pour meilleure précision
+      let currentGPSData = null;
+      let gpsWatchId = null;
+
+      if (navigator.geolocation) {
+        gpsWatchId = navigator.geolocation.watchPosition(
+          (position) => {
+            const accuracy = Math.round(position.coords.accuracy);
+
+            // Mettre à jour les données GPS actuelles
+            currentGPSData = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              timestamp: Date.now()
+            };
+
+            // Couleur selon la précision
+            let color, icon, status;
+            if (accuracy <= 20) {
+              color = '#10b981'; // Vert - Excellent
+              icon = '✅';
+              status = 'Excellente';
+            } else if (accuracy <= 50) {
+              color = '#3b82f6'; // Bleu - Bonne
+              icon = '📍';
+              status = 'Bonne';
+            } else if (accuracy <= 100) {
+              color = '#f59e0b'; // Orange - Moyenne
+              icon = '⚠️';
+              status = 'Moyenne';
+            } else {
+              color = '#ef4444'; // Rouge - Mauvaise
+              icon = '❌';
+              status = 'Faible';
+            }
+
+            // Mettre à jour l'indicateur GPS
+            gpsIndicator.style.background = `rgba(0, 0, 0, 0.85)`;
+            gpsIndicator.style.border = `2px solid ${color}`;
+            gpsIndicator.innerHTML = `${icon} GPS: ±${accuracy}m (${status})`;
+
+            // Le bouton reste toujours actif, quelle que soit la précision
+            console.log(`📍 GPS mis à jour: ±${accuracy}m`, currentGPSData);
+          },
+          (error) => {
+            console.error('Erreur GPS:', error);
+            gpsIndicator.style.border = '2px solid #ef4444';
+            gpsIndicator.innerHTML = '❌ GPS indisponible';
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 30000,
+            maximumAge: 0 // Pas de cache
+          }
+        );
+      }
+
+      // Fonction pour arrêter la caméra, GPS et fermer la modal
+      const closeCamera = () => {
+        stream.getTracks().forEach(track => track.stop());
+        if (gpsWatchId !== null) {
+          navigator.geolocation.clearWatch(gpsWatchId);
+        }
+        document.body.removeChild(modal);
+      };
+
+      // Bouton annuler
+      cancelBtn.onclick = closeCamera;
+
+      // Bouton capturer
+      captureBtn.onclick = async () => {
+        if (!currentGPSData) {
+          alert('⚠️ GPS non disponible. Veuillez réessayer.');
+          return;
+        }
+
+        // Désactiver le bouton pendant le traitement
+        captureBtn.disabled = true;
+        captureBtn.textContent = '� Capture en cours...';
+        captureBtn.style.opacity = '0.7';
+
+        try {
+          console.log('📍 GPS utilisé pour la photo:', currentGPSData);
+
+          // Créer un canvas pour capturer l'image
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0);
+
+          // Convertir en blob
+          canvas.toBlob((blob) => {
+            if (blob) {
+              // Vérifier la taille
+              if (blob.size > 5 * 1024 * 1024) {
+                setFieldErrors(prev => ({ ...prev, photo: 'La photo ne doit pas dépasser 5 MB' }));
+                closeCamera();
+                return;
+              }
+
+              // Créer un fichier à partir du blob
+              const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+              setPhoto(file);
+
+              // Stocker les métadonnées GPS avec la photo
+              setPhotoMetadata(currentGPSData);
+
+              // Créer une prévisualisation
+              const reader = new FileReader();
+              reader.onload = (e) => setPhotoPreview(e.target.result);
+              reader.readAsDataURL(file);
+
+              // Effacer les erreurs
+              setFieldErrors(prev => ({ ...prev, photo: undefined }));
+              if (error) setError('');
+
+              console.log('✅ Photo + GPS capturés avec succès');
+              closeCamera();
+            }
+          }, 'image/jpeg', 0.9);
+
+        } catch (captureError) {
+          console.error('Erreur capture:', captureError);
+          setFieldErrors(prev => ({ ...prev, photo: 'Erreur lors de la capture' }));
+          closeCamera();
+        }
+      };
+
+    } catch (err) {
+      console.error('Erreur caméra:', err);
+      if (err.name === 'NotAllowedError') {
+        setFieldErrors(prev => ({ ...prev, photo: 'Accès à la caméra refusé. Veuillez autoriser l\'accès dans les paramètres.' }));
+      } else if (err.name === 'NotFoundError') {
+        setFieldErrors(prev => ({ ...prev, photo: 'Aucune caméra trouvée sur cet appareil' }));
+      } else {
+        setFieldErrors(prev => ({ ...prev, photo: 'Impossible d\'accéder à la caméra' }));
+      }
     }
+  };
+
+  const removePhoto = () => {
+    setPhoto(null);
+    setPhotoPreview(null);
+    setPhotoMetadata(null); // Effacer aussi les données GPS
+    // Ajouter une erreur car la photo est obligatoire
+    setFieldErrors(prev => ({ ...prev, photo: 'La photo est obligatoire' }));
   };
 
   // Charger les secteurs depuis l'API
@@ -117,544 +537,652 @@ const DeclarerIncident = () => {
     loadSecteurs();
   }, []);
 
-  const handleGetLocation = () => {
+  /**
+   * Récupère la position GPS au moment exact de la prise de photo
+   * @returns {Promise<{latitude: number, longitude: number, accuracy: number, timestamp: number}>}
+   */
+  const captureGPSAtPhotoMoment = async () => {
     if (!navigator.geolocation) {
-      setError('La géolocalisation n\'est pas supportée par ce navigateur');
-      return;
+      throw new Error('Votre navigateur ne supporte pas la géolocalisation.');
     }
-    
-    setIsLocationLoading(true);
-    setError(''); // Effacer les erreurs précédentes
-    
-    // Essayer d'abord avec enableHighAccuracy: false (plus rapide)
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setFormData(prev => ({
-          ...prev,
-          latitude: position.coords.latitude.toFixed(6),
-          longitude: position.coords.longitude.toFixed(6)
-        }));
-        setIsLocationLoading(false);
-        setMessage('Position obtenue avec succès!');
-        setTimeout(() => setMessage(''), 3000); // Effacer le message après 3s
-      },
-      (error) => {
-        // Si la première tentative échoue, essayer avec enableHighAccuracy: true
-        if (error.code === error.TIMEOUT) {
-          console.log('Première tentative expirée, essai avec haute précision...');
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              setFormData(prev => ({
-                ...prev,
-                latitude: position.coords.latitude.toFixed(6),
-                longitude: position.coords.longitude.toFixed(6)
-              }));
-              setIsLocationLoading(false);
-              setMessage('Position obtenue avec succès!');
-              setTimeout(() => setMessage(''), 3000);
-            },
-            (error) => {
-              setIsLocationLoading(false);
-              let errorMessage = 'Impossible d\'obtenir la géolocalisation: ';
-              switch(error.code) {
-                case error.PERMISSION_DENIED:
-                  errorMessage += 'Permission refusée. Veuillez autoriser la géolocalisation dans les paramètres de votre navigateur.';
-                  break;
-                case error.POSITION_UNAVAILABLE:
-                  errorMessage += 'Position indisponible. Vérifiez que le GPS/localisation est activé sur votre appareil.';
-                  break;
-                case error.TIMEOUT:
-                  errorMessage += 'Délai d\'attente dépassé. Vous pouvez saisir les coordonnées manuellement.';
-                  break;
-                default:
-                  errorMessage += 'Erreur inconnue.';
-                  break;
-              }
-              setError(errorMessage);
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 30000, // 30 secondes pour haute précision
-              maximumAge: 0
-            }
-          );
-        } else {
-          setIsLocationLoading(false);
-          let errorMessage = 'Impossible d\'obtenir la géolocalisation: ';
-          switch(error.code) {
-            case error.PERMISSION_DENIED:
-              errorMessage += 'Permission refusée. Veuillez autoriser la géolocalisation dans les paramètres de votre navigateur.';
+
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            timestamp: Date.now() // Timestamp de la capture
+          });
+        },
+        (geoError) => {
+          switch (geoError.code) {
+            case geoError.PERMISSION_DENIED:
+              reject(new Error('📍 Accès à la localisation refusé. Veuillez autoriser la localisation pour prendre une photo.'));
               break;
-            case error.POSITION_UNAVAILABLE:
-              errorMessage += 'Position indisponible. Vérifiez que le GPS/localisation est activé sur votre appareil.';
+            case geoError.POSITION_UNAVAILABLE:
+              reject(new Error('📍 Position GPS indisponible. Vérifiez que le GPS est activé.'));
               break;
-            case error.TIMEOUT:
-              errorMessage += 'Délai d\'attente dépassé. Vous pouvez saisir les coordonnées manuellement.';
+            case geoError.TIMEOUT:
+              reject(new Error('📍 Délai GPS dépassé. Veuillez réessayer.'));
               break;
             default:
-              errorMessage += 'Erreur inconnue.';
-              break;
+              reject(new Error('📍 Erreur GPS inconnue.'));
           }
-          setError(errorMessage);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0 // Pas de cache, position fraîche
         }
-      },
-      {
-        enableHighAccuracy: false, // Plus rapide
-        timeout: 15000, // 15 secondes
-        maximumAge: 60000 // Accepter une position de moins d'1 minute
-      }
-    );
+      );
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setMessage('');
+    setSavedOffline(false);
     setIsSubmitting(true);
+    setIsGettingLocation(true);
 
     try {
       // Validation complète du formulaire
       const allErrors = {};
       Object.keys(formData).forEach(key => {
-        if (['titre', 'description', 'typeIncident', 'secteurId', 'ime'].includes(key)) {
+        if (['titre', 'description', 'typeIncident', 'secteurId'].includes(key)) {
           const fieldError = validateField(key, formData[key]);
           Object.assign(allErrors, fieldError);
         }
       });
-      
+
+      // Validation de la photo ET des données GPS (obligatoires)
+      if (!photo) {
+        allErrors.photo = 'La photo est obligatoire';
+      }
+      if (!photoMetadata) {
+        allErrors.photo = 'La localisation GPS est obligatoire. Veuillez prendre une photo.';
+      }
+
       if (Object.keys(allErrors).length > 0) {
         setFieldErrors(allErrors);
         throw new Error('Veuillez corriger les erreurs dans le formulaire');
       }
 
-      // Préparer les données pour l'API
+      // Utiliser les coordonnées GPS capturées au moment de la photo
+      const geoData = photoMetadata;
+      console.log('📍 Utilisation GPS du moment de la photo:', geoData);
+
+      // Préparer les données pour l'API - avec géolocalisation automatique
       const incidentData = {
-        ...formData,
+        titre: formData.titre,
+        typeIncident: formData.typeIncident,
+        description: formData.description,
+        latitude: geoData.latitude,
+        longitude: geoData.longitude,
+        accuracy: geoData.accuracy, // Précision GPS en mètres
         secteurId: parseInt(formData.secteurId),
-        provinceId: 0, // Temporairement désactivé pour éviter l'erreur de contrainte
-        ime: parseInt(formData.ime),
-        dateDeclaration: new Date().toISOString(),
-        statut: 'REDIGE'
+        deviceId: deviceId // Identifiant anonyme du citoyen (UUID)
       };
 
-      // Envoyer à l'API
-      const result = await citoyensAPI.declarerIncident(incidentData, photo);
-      
-      setMessage('Incident déclaré avec succès ! ID: ' + result.id);
-      
-      // Réinitialiser le formulaire
-      setFormData({
-        titre: '',
-        description: '',
-        typeIncident: '',
-        latitude: '',
-        longitude: '',
-        secteurId: '',
-        provinceId: '',
-        ime: ''
-      });
-      setPhoto(null);
-      setPhotoPreview(null);
-      
+      // Si hors-ligne, sauvegarder dans la file d'attente
+      if (!isOnline) {
+        await addToQueue(incidentData, photo);
+        setSavedOffline(true);
+        setMessage('Incident sauvegardé localement. Il sera envoyé automatiquement à la reconnexion.');
+
+        // Réinitialiser le formulaire
+        resetForm();
+      } else {
+        // Envoyer à l'API publique
+        const result = await publicAPI.declarerIncidentAnonymous(incidentData, photo);
+        setMessage('Incident déclaré avec succès ! ID: ' + result.id);
+
+        // Réinitialiser le formulaire
+        resetForm();
+      }
+
     } catch (err) {
-      setError('Erreur lors de la déclaration: ' + err.message);
+      // Si erreur réseau, proposer de sauvegarder hors-ligne
+      if (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed')) {
+        setError('Connexion impossible. L\'incident a été sauvegardé localement.');
+        try {
+          const incidentData = {
+            titre: formData.titre,
+            typeIncident: formData.typeIncident,
+            description: formData.description,
+            latitude: null, // Sera récupéré à la synchronisation
+            longitude: null,
+            secteurId: parseInt(formData.secteurId),
+            deviceId: deviceId // Identifiant anonyme du citoyen
+          };
+          await addToQueue(incidentData, photo);
+          setSavedOffline(true);
+          resetForm();
+        } catch (queueErr) {
+          setError('Erreur lors de la sauvegarde locale: ' + queueErr.message);
+        }
+      } else {
+        setError('Erreur lors de la déclaration: ' + err.message);
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Fonction pour réinitialiser le formulaire
+  const resetForm = () => {
+    setFormData({
+      titre: '',
+      description: '',
+      typeIncident: '',
+      secteurId: ''
+    });
+    setPhoto(null);
+    setPhotoPreview(null);
+    setPhotoMetadata(null); // Réinitialiser les métadonnées GPS
+  };
+
   return (
-    <div className="page">
-      <div className="container" style={{ maxWidth: '600px' }}>
-        <div className="page-header">
-          <h1 className="page-title">Déclarer un incident</h1>
-          <p className="page-description">
-            Signalez un incident dans votre ville de manière rapide et efficace
-          </p>
-          
-          {/* Indicateur de progression */}
-          <div className="progress-indicator" style={{ marginTop: '1.5rem' }}>
-            <div className="step-indicators" style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '1rem' }}>
-              <div className="step active" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--primary-color)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '600' }}>1</div>
-                <span style={{ fontSize: '14px', color: 'var(--primary-color)', fontWeight: '500' }}>Informations</span>
+    <PWAGuard>
+      <div className="page">
+        <div className="container" style={{ maxWidth: '600px' }}>
+          <div className="page-header">
+            <h1 className="page-title">Déclarer un incident</h1>
+            <p className="page-description">
+              Signalez un incident dans votre ville de manière rapide et efficace
+            </p>
+
+            {/* Avertissement mode hors-ligne */}
+            {!isOnline && (
+              <div style={{
+                marginTop: '1rem',
+                padding: '12px 16px',
+                backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                border: '1px solid #f59e0b',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <WifiOff size={20} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                <div>
+                  <strong style={{ color: '#b45309' }}>Mode hors-ligne</strong>
+                  <p style={{ fontSize: '0.85rem', color: '#92400e', margin: 0 }}>
+                    Votre déclaration sera sauvegardée et envoyée automatiquement à la reconnexion.
+                  </p>
+                </div>
               </div>
-              <div style={{ width: '40px', height: '2px', backgroundColor: 'var(--border-color)', margin: 'auto 0' }}></div>
-              <div className="step" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '600' }}>2</div>
-                <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Localisation</span>
+            )}
+
+            {/* Indicateur d'incidents en attente */}
+            {hasQueuedItems && (
+              <div style={{
+                marginTop: '1rem',
+                padding: '12px 16px',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                border: '1px solid #3b82f6',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <Clock size={20} style={{ color: '#3b82f6', flexShrink: 0 }} />
+                <div>
+                  <strong style={{ color: '#1d4ed8' }}>{queueLength} incident(s) en attente</strong>
+                  <p style={{ fontSize: '0.85rem', color: '#1e40af', margin: 0 }}>
+                    {isSyncing ? 'Synchronisation en cours...' : 'Sera envoyé dès que possible.'}
+                  </p>
+                </div>
               </div>
-              <div style={{ width: '40px', height: '2px', backgroundColor: 'var(--border-color)', margin: 'auto 0' }}></div>
-              <div className="step" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '600' }}>3</div>
-                <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Confirmation</span>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="card">
+            {/* Titre */}
+            <div className="form-group enhanced">
+              <label htmlFor="titre" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FileText size={16} />
+                Titre de l'incident *
+              </label>
+              <input
+                type="text"
+                id="titre"
+                name="titre"
+                list="titre-suggestions"
+                value={formData.titre}
+                onChange={handleChange}
+                className={`form-input ${fieldErrors.titre ? 'error' : formData.titre.length >= 5 ? 'success' : ''}`}
+                placeholder="Ex: Nid de poule sur l'avenue Mohammed V"
+                maxLength="100"
+                required
+              />
+              {/* Datalist pour suggestions */}
+              <datalist id="titre-suggestions">
+                {formData.typeIncident && TITRE_SUGGESTIONS[formData.typeIncident]?.map((suggestion, idx) => (
+                  <option key={idx} value={suggestion} />
+                ))}
+              </datalist>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                {fieldErrors.titre && (
+                  <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <AlertCircle size={12} />
+                    {fieldErrors.titre}
+                  </span>
+                )}
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+                  {formData.titre.length}/100
+                </span>
+              </div>
+              <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <Info size={12} />
+                {formData.typeIncident ? '💡 Suggestions disponibles ci-dessus' : 'Soyez précis et concis'}
               </div>
             </div>
-          </div>
-        </div>
 
-        <form onSubmit={handleSubmit} className="card">
-          {/* Titre */}
-          <div className="form-group">
-            <label htmlFor="titre" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <FileText size={16} />
-              Titre de l'incident *
-            </label>
-            <input
-              type="text"
-              id="titre"
-              name="titre"
-              value={formData.titre}
-              onChange={handleChange}
-              className={`form-input ${fieldErrors.titre ? 'error' : formData.titre.length >= 5 ? 'success' : ''}`}
-              placeholder="Ex: Nid de poule sur l'avenue Mohammed V"
-              maxLength="100"
-              required
-            />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
-              {fieldErrors.titre && (
-                <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            {/* Description */}
+            <div className="form-group enhanced">
+              <label htmlFor="description" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FileText size={16} />
+                Description détaillée *
+              </label>
+              <textarea
+                id="description"
+                name="description"
+                value={formData.description}
+                onChange={handleChange}
+                className={`form-textarea ${fieldErrors.description ? 'error' : formData.description.length >= 20 ? 'success' : ''}`}
+                rows="5"
+                placeholder={useMemo(() => {
+                  const secteur = secteurs.find(s => s.id == formData.secteurId);
+                  return secteur ? DESCRIPTION_EXEMPLES[secteur.nom] || '📝 Décrivez l\'incident...' : '📝 Décrivez l\'incident...';
+                }, [formData.secteurId, secteurs])}
+                maxLength="500"
+                required
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                {fieldErrors.description && (
+                  <span className="form-error-message" style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <AlertCircle size={12} />
+                    {fieldErrors.description}
+                  </span>
+                )}
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+                  {formData.description.length}/500
+                </span>
+              </div>
+              <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <Info size={12} />
+                💡 Plus vous êtes précis, plus l'intervention sera rapide
+              </div>
+            </div>
+
+            {/* Secteur */}
+            <div className="form-group enhanced">
+              <label htmlFor="secteurId" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <MapIcon size={16} />
+                Secteur géographique *
+              </label>
+              <select
+                id="secteurId"
+                name="secteurId"
+                value={formData.secteurId}
+                onChange={handleChange}
+                className={`form-select ${fieldErrors.secteurId ? 'error' : formData.secteurId ? 'success' : ''}`}
+                required
+              >
+                <option value="">📍 Choisir votre secteur</option>
+                {secteurs.map(secteur => {
+                  // Mapper chaque secteur à son emoji approprié
+                  const getSecteurEmoji = (nom) => {
+                    const emojiMap = {
+                      'Infrastructure': '🏗️',
+                      'Environnement': '🌿',
+                      'Sécurité': '🚨',
+                      'Urbanisme': '🏙️',
+                      'Transport': '🚌',
+                      'Santé': '⚕️',
+                      'Services Publics': '💧'
+                    };
+                    return emojiMap[nom] || '🏘️';
+                  };
+
+                  return (
+                    <option key={secteur.id} value={secteur.id}>
+                      {getSecteurEmoji(secteur.nom)} {secteur.nom}
+                    </option>
+                  );
+                })}
+              </select>
+              {fieldErrors.secteurId && (
+                <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
                   <AlertCircle size={12} />
-                  {fieldErrors.titre}
+                  {fieldErrors.secteurId}
                 </span>
               )}
-              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
-                {formData.titre.length}/100
-              </span>
-            </div>
-            <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <Info size={12} />
-              Soyez précis et concis. Ex: "Fuite d'eau rue X" ou "Éclairage défaillant avenue Y"
-            </div>
-          </div>
-
-          {/* Description */}
-          <div className="form-group enhanced">
-            <label htmlFor="description" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <FileText size={16} />
-              Description détaillée *
-            </label>
-            <textarea
-              id="description"
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              className={`form-textarea ${fieldErrors.description ? 'error' : ''}`}
-              rows="5"
-              placeholder="📝 Décrivez l'incident observé (localisation, nature du problème, urgence...)"
-              required
-            />
-            {fieldErrors.description && (
-              <span className="form-error-message" style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.5rem' }}>
-                <AlertCircle size={12} />
-                {fieldErrors.description}
-              </span>
-            )}
-
-          </div>
-
-          {/* Type d'incident */}
-          <div className="form-group">
-            <label htmlFor="typeIncident" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Tag size={16} />
-              Catégorie d'incident *
-            </label>
-            <select
-              id="typeIncident"
-              name="typeIncident"
-              value={formData.typeIncident}
-              onChange={handleChange}
-              className={`form-select ${fieldErrors.typeIncident ? 'error' : formData.typeIncident ? 'success' : ''}`}
-              required
-            >
-              <option value="">🏷️ Sélectionner la catégorie</option>
-              <option value="Voirie">🛣️ Voirie (nids-de-poule, chaussée dégradée)</option>
-              <option value="Éclairage public">💡 Éclairage public (lampadaire défaillant)</option>
-              <option value="Assainissement">🚰 Assainissement (fuite, égout bouché)</option>
-              <option value="Espaces verts">🌳 Espaces verts (arbres dangereux, jardins)</option>
-              <option value="Propreté">🧹 Propreté urbaine (déchets, graffitis)</option>
-              <option value="Sécurité">🛡️ Sécurité publique (signalisation défaillante)</option>
-              <option value="Transport">🚌 Transport public (arrêt endommagé)</option>
-              <option value="Autre">❓ Autre incident urbain</option>
-            </select>
-            {fieldErrors.typeIncident && (
-              <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
-                <AlertCircle size={12} />
-                {fieldErrors.typeIncident}
-              </span>
-            )}
-          </div>
-
-          {/* Secteur */}
-          <div className="form-group">
-            <label htmlFor="secteurId" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <MapIcon size={16} />
-              Secteur géographique *
-            </label>
-            <select
-              id="secteurId"
-              name="secteurId"
-              value={formData.secteurId}
-              onChange={handleChange}
-              className={`form-select ${fieldErrors.secteurId ? 'error' : formData.secteurId ? 'success' : ''}`}
-              required
-            >
-              <option value="">📍 Choisir votre secteur</option>
-              {secteurs.map(secteur => (
-                <option key={secteur.idSecteur} value={secteur.idSecteur}>
-                  🏘️ {secteur.nomSecteur}
-                </option>
-              ))}
-            </select>
-            {fieldErrors.secteurId && (
-              <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
-                <AlertCircle size={12} />
-                {fieldErrors.secteurId}
-              </span>
-            )}
-            <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <Info size={12} />
-              Le secteur permet d'orienter votre signalement vers le service compétent
-            </div>
-          </div>
-
-          {/* Province */}
-          <div className="form-group">
-            <label htmlFor="provinceId" className="form-label">
-              Province
-            </label>
-            <select
-              id="provinceId"
-              name="provinceId"
-              value={formData.provinceId}
-              onChange={handleChange}
-              className="form-select"
-            >
-              <option value="">Sélectionner une province</option>
-              {PROVINCES_MAP.map(province => (
-                <option key={province.id} value={province.id}>
-                  {province.nom}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* IME du citoyen */}
-          <div className="form-group">
-            <label htmlFor="ime" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <User size={16} />
-              IME (Identifiant Municipal Électronique) *
-            </label>
-            <input
-              type="text"
-              id="ime"
-              name="ime"
-              value={formData.ime}
-              onChange={handleChange}
-              className={`form-input ${fieldErrors.ime ? 'error' : formData.ime && /^\d{8,12}$/.test(formData.ime) ? 'success' : ''}`}
-              placeholder="Ex: 123456789012"
-              maxLength="12"
-              pattern="[0-9]{8,12}"
-              required
-            />
-            {fieldErrors.ime && (
-              <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
-                <AlertCircle size={12} />
-                {fieldErrors.ime}
-              </span>
-            )}
-            <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <Info size={12} />
-              Votre IME se trouve sur votre carte d'identité électronique ou certificat de résidence
-            </div>
-          </div>
-
-          {/* Géolocalisation */}
-          <div className="form-group" style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', backgroundColor: 'var(--bg-secondary)' }}>
-            <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <MapPin size={16} />
-              Localisation de l'incident
-            </label>
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-              <div style={{ flex: 1 }}>
-                <input
-                  type="text"
-                  name="latitude"
-                  value={formData.latitude}
-                  onChange={handleChange}
-                  className="form-input"
-                  placeholder="Latitude (ex: 34.0209)"
-                  readOnly={!formData.latitude}
-                />
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Latitude</span>
-              </div>
-              <div style={{ flex: 1 }}>
-                <input
-                  type="text"
-                  name="longitude"
-                  value={formData.longitude}
-                  onChange={handleChange}
-                  className="form-input"
-                  placeholder="Longitude (ex: -6.8417)"
-                  readOnly={!formData.longitude}
-                />
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Longitude</span>
+              <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <Info size={12} />
+                Le secteur permet d'orienter votre signalement vers le service compétent
               </div>
             </div>
+
+            {/* Type d'incident */}
+            <div className="form-group enhanced">
+              <label htmlFor="typeIncident" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Tag size={16} />
+                Catégorie d'incident *
+              </label>
+              <select
+                id="typeIncident"
+                name="typeIncident"
+                value={formData.typeIncident}
+                onChange={handleChange}
+                className={`form-select ${fieldErrors.typeIncident ? 'error' : formData.typeIncident ? 'success' : ''}`}
+                required
+              >
+                <option value="">🏷️ Sélectionner la catégorie</option>
+                {(() => {
+                  const secteur = secteurs.find(s => s.id == formData.secteurId);
+                  const allowedCategories = secteur ? (SECTEUR_CATEGORIES[secteur.nom] || ALL_CATEGORIES) : ALL_CATEGORIES;
+
+                  const categoryOptions = [
+                    { value: 'Voirie', label: '🛣️ Voirie (nids-de-poule, chaussée dégradée)' },
+                    { value: 'Éclairage public', label: '💡 Éclairage public (lampadaire défaillant)' },
+                    { value: 'Assainissement', label: '🚰 Assainissement (fuite, égout bouché)' },
+                    { value: 'Espaces verts', label: '🌳 Espaces verts (arbres dangereux, jardins)' },
+                    { value: 'Propreté', label: '🧹 Propreté urbaine (déchets, graffitis)' },
+                    { value: 'Sécurité', label: '🛡️ Sécurité publique (signalisation défaillante)' },
+                    { value: 'Transport', label: '🚌 Transport public (arrêt endommagé)' },
+                    { value: 'Autre', label: '❓ Autre incident urbain' }
+                  ];
+
+                  return categoryOptions
+                    .filter(cat => allowedCategories.includes(cat.value))
+                    .map(cat => <option key={cat.value} value={cat.value}>{cat.label}</option>);
+                })()}
+              </select>
+              {fieldErrors.typeIncident && (
+                <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.25rem' }}>
+                  <AlertCircle size={12} />
+                  {fieldErrors.typeIncident}
+                </span>
+              )}
+              {formData.secteurId && (
+                <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <Info size={12} />
+                  Catégories filtrées selon votre secteur
+                </div>
+              )}
+            </div>
+
+            {/* Province: Déterminée automatiquement par le backend via intersection spatiale GPS */}
+
+            {/* NOTE: Identifiant citoyen généré automatiquement (UUID) - invisible pour l'utilisateur */}
+
+            {/* NOTE: Géolocalisation automatique - capturée lors de l'envoi */}
+
+            {/* Photo - Camera Only */}
+            <div className="form-group enhanced" style={{ marginTop: '2rem' }}>
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <Camera size={16} />
+                Prendre une photo <span style={{ color: '#ef4444', marginLeft: '2px' }}>*</span>
+              </label>
+
+              {!photoPreview ? (
+                <div
+                  style={{
+                    border: fieldErrors.photo ? '2px dashed #ef4444' : '2px dashed #cbd5e1',
+                    borderRadius: '16px',
+                    padding: '2.5rem 1.5rem',
+                    textAlign: 'center',
+                    background: 'linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(241, 245, 249, 0.6) 100%)',
+                    cursor: 'pointer',
+                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                    position: 'relative',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
+                  }}
+                  onClick={openCamera}
+                >
+                  <div style={{
+                    width: '70px',
+                    height: '70px',
+                    margin: '0 auto 1.25rem',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.25)'
+                  }}>
+                    <Camera size={32} color="white" strokeWidth={2.5} />
+                  </div>
+
+                  <p style={{
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    color: '#1e293b',
+                    marginBottom: '0.5rem'
+                  }}>
+                    📷 Prendre une photo
+                  </p>
+
+                  <p style={{
+                    fontSize: '0.875rem',
+                    color: '#64748b',
+                    marginBottom: '0.75rem'
+                  }}>
+                    Cliquez pour ouvrir la caméra
+                  </p>
+
+                  <p style={{
+                    fontSize: '0.75rem',
+                    color: '#94a3b8'
+                  }}>
+                    Caméra uniquement · Max 5 MB
+                  </p>
+                </div>
+              ) : (
+                <div style={{
+                  position: 'relative',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  border: '2px solid #10b981',
+                  backgroundColor: '#f0fdf4'
+                }}>
+                  <img
+                    src={photoPreview}
+                    alt="Prévisualisation"
+                    style={{
+                      width: '100%',
+                      maxHeight: '300px',
+                      objectFit: 'contain',
+                      display: 'block'
+                    }}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 40%)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'flex-end',
+                    padding: '1rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{
+                        color: 'white',
+                        fontSize: '0.875rem',
+                        fontWeight: '500',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                      }}>
+                        <CheckCircle2 size={16} />
+                        Photo ajoutée
+                      </span>
+                      <button
+                        type="button"
+                        onClick={removePhoto}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.9)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.875rem',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          transition: 'all 0.2s',
+                          backdropFilter: 'blur(4px)'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#dc2626';
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.9)';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }}
+                      >
+                        ✕ Supprimer
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {fieldErrors.photo && (
+                <span style={{ color: 'var(--danger-color)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.5rem' }}>
+                  <AlertCircle size={12} />
+                  {fieldErrors.photo}
+                </span>
+              )}
+              {/* Affichage des données GPS si photo prise */}
+              {photoMetadata && photoPreview && (
+                <div style={{
+                  marginTop: '0.75rem',
+                  padding: '10px 12px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                  border: '1px solid #10b981',
+                  borderRadius: '8px',
+                  fontSize: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', color: '#065f46', fontWeight: '600' }}>
+                    <MapPin size={14} />
+                    Localisation capturée avec la photo
+                  </div>
+                  <div style={{ color: '#047857', lineHeight: '1.5' }}>
+                    <div>🌐 <strong>Coordonnées:</strong> {photoMetadata.latitude.toFixed(6)}, {photoMetadata.longitude.toFixed(6)}</div>
+                    <div>🎯 <strong>Précision:</strong> ±{Math.round(photoMetadata.accuracy)}m</div>
+                    <div>🕒 <strong>Horodatage:</strong> {new Date(photoMetadata.timestamp).toLocaleString('fr-FR')}</div>
+                  </div>
+                </div>
+              )}
+              <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <Info size={12} />
+                📸 La photo ET la localisation GPS sont obligatoires
+              </div>
+            </div>
+
+            {/* Messages */}
+            {error && (
+              <div className="alert alert-error">
+                {error}
+              </div>
+            )}
+            {message && (
+              <div className="alert alert-success">
+                {message}
+              </div>
+            )}
+
+            {/* Résumé avant soumission */}
+            {formData.titre && formData.description && formData.typeIncident && formData.secteurId && formData.ime && (
+              <div style={{
+                border: '1px solid var(--success-color)',
+                borderRadius: '8px',
+                padding: '1rem',
+                backgroundColor: 'rgba(16, 185, 129, 0.05)',
+                marginBottom: '1rem'
+              }}>
+                <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--success-color)' }}>
+                  <CheckCircle2 size={16} />
+                  Résumé de votre déclaration
+                </h4>
+                <div style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
+                  <p><strong>Incident:</strong> {formData.titre}</p>
+                  <p><strong>Type:</strong> {formData.typeIncident}</p>
+                  <p><strong>Secteur:</strong> {secteurs.find(s => s.id == formData.secteurId)?.nom || 'N/A'}</p>
+                  <p style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <MapPin size={14} />
+                    <strong>Position GPS:</strong> <span style={{ color: 'var(--primary-color)' }}>Capturée automatiquement à l'envoi</span>
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Bouton de soumission */}
             <button
-              type="button"
-              onClick={handleGetLocation}
-              disabled={isLocationLoading}
-              className={`btn-secondary ${isLocationLoading ? 'loading' : ''}`}
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '0.5rem',
+              type="submit"
+              disabled={isSubmitting || !photo || Object.keys(fieldErrors).some(key => fieldErrors[key])}
+              className="btn-primary"
+              style={{
                 width: '100%',
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: formData.latitude && formData.longitude ? 'var(--success-color)' : undefined,
-                color: formData.latitude && formData.longitude ? 'white' : undefined
+                gap: '0.5rem',
+                padding: '1rem',
+                fontSize: '16px',
+                fontWeight: '600',
+                opacity: isSubmitting || Object.keys(fieldErrors).some(key => fieldErrors[key]) ? 0.6 : 1
               }}
             >
-              {isLocationLoading ? (
-                <>
-                  <Upload size={16} className="spin" />
-                  Localisation en cours...
-                </>
-              ) : formData.latitude && formData.longitude ? (
-                <>
-                  <CheckCircle2 size={16} />
-                  Position enregistrée ✓
-                </>
+              {isSubmitting ? (
+                isGettingLocation ? (
+                  <>
+                    <MapPin size={20} className="spin" />
+                    Récupération de votre position GPS...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={20} className="spin" />
+                    Envoi en cours...
+                  </>
+                )
               ) : (
                 <>
-                  <MapPin size={16} />
-                  📍 Obtenir ma position actuelle
+                  <Send size={20} />
+                  🚀 Envoyer ma déclaration
                 </>
               )}
             </button>
-            <div className="form-help" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <Info size={12} />
-              La géolocalisation précise aide les services à localiser rapidement l'incident
-            </div>
-          </div>
 
-          {/* Photo */}
-          <div className="form-group">
-            <label htmlFor="photo" className="form-label">
-              Photo (optionnelle)
-            </label>
-            <div className="file-upload">
-              <input
-                type="file"
-                id="photo"
-                accept="image/*"
-                onChange={handlePhotoChange}
-                style={{ display: 'none' }}
-              />
-              <label htmlFor="photo" className="file-upload-label">
-                <Camera size={20} />
-                Ajouter une photo
-              </label>
-            </div>
-            {photoPreview && (
-              <div style={{ marginTop: '1rem' }}>
-                <img
-                  src={photoPreview}
-                  alt="Prévisualisation"
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: '200px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-color)'
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Messages */}
-          {error && (
-            <div className="alert alert-error">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="alert alert-success">
-              {message}
-            </div>
-          )}
-
-          {/* Résumé avant soumission */}
-          {formData.titre && formData.description && formData.typeIncident && formData.secteurId && formData.ime && (
-            <div style={{ 
-              border: '1px solid var(--success-color)', 
-              borderRadius: '8px', 
-              padding: '1rem', 
-              backgroundColor: 'rgba(16, 185, 129, 0.05)',
-              marginBottom: '1rem'
-            }}>
-              <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--success-color)' }}>
-                <CheckCircle2 size={16} />
-                Résumé de votre déclaration
-              </h4>
-              <div style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
-                <p><strong>Incident:</strong> {formData.titre}</p>
-                <p><strong>Type:</strong> {formData.typeIncident}</p>
-                <p><strong>Secteur:</strong> {secteurs.find(s => s.idSecteur == formData.secteurId)?.nomSecteur || 'N/A'}</p>
-                {formData.latitude && formData.longitude && (
-                  <p><strong>Position:</strong> GPS activée ✓</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Bouton de soumission */}
-          <button
-            type="submit"
-            disabled={isSubmitting || Object.keys(fieldErrors).some(key => fieldErrors[key])}
-            className="btn-primary"
-            style={{
-              width: '100%',
+            <div className="form-help" style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              marginTop: '1rem',
+              textAlign: 'center',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.5rem',
-              padding: '1rem',
-              fontSize: '16px',
-              fontWeight: '600',
-              opacity: isSubmitting || Object.keys(fieldErrors).some(key => fieldErrors[key]) ? 0.6 : 1
-            }}
-          >
-            {isSubmitting ? (
-              <>
-                <Upload size={20} className="spin" />
-                Envoi en cours...
-              </>
-            ) : (
-              <>
-                <Send size={20} />
-                🚀 Envoyer ma déclaration
-              </>
-            )}
-          </button>
-          
-          <div className="form-help" style={{ 
-            fontSize: '12px', 
-            color: 'var(--text-secondary)', 
-            marginTop: '1rem', 
-            textAlign: 'center',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.25rem',
-            justifyContent: 'center'
-          }}>
-            <Info size={12} />
-            Vous recevrez un numéro de suivi après validation de votre déclaration
-          </div>
-        </form>
+              gap: '0.25rem',
+              justifyContent: 'center'
+            }}>
+              <Info size={12} />
+              Vous recevrez un numéro de suivi après validation de votre déclaration
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </PWAGuard >
   );
 };
 

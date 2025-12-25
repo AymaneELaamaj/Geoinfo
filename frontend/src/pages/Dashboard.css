@@ -1,0 +1,400 @@
+/**
+ * Dashboard Professional Styles
+ * Design moderne inspiré de Stripe, AWS Console, Vercel
+ */
+
+/* ====================================
+   CSS Variables - Design System
+   ==================================== */
+:root {
+    --dash-primary: #2563eb;
+    --dash-primary-light: #dbeafe;
+    --dash-success: #059669;
+    --dash-success-light: #d1fae5;
+    --dash-warning: #d97706;
+    --dash-warning-light: #fef3c7;
+    --dash-danger: #dc2626;
+    --dash-danger-light: #fee2e2;
+    --dash-info: #0891b2;
+    --dash-info-light: #cffafe;
+
+    --dash-gray-50: #f9fafb;
+    --dash-gray-100: #f3f4f6;
+    --dash-gray-200: #e5e7eb;
+    --dash-gray-300: #d1d5db;
+    --dash-gray-400: #9ca3af;
+    --dash-gray-500: #6b7280;
+    --dash-gray-600: #4b5563;
+    --dash-gray-700: #374151;
+    --dash-gray-800: #1f2937;
+    --dash-gray-900: #111827;
+
+    --dash-radius-sm: 8px;
+    --dash-radius-md: 12px;
+    --dash-radius-lg: 16px;
+    --dash-radius-xl: 20px;
+
+    --dash-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --dash-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    --dash-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    --dash-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+
+    --dash-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ====================================
+   Layout Principal
+   ==================================== */
+.dashboard {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f1f5f9 100%);
+    padding: 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+    .dashboard {
+        padding: 16px;
+    }
+}
+
+/* ====================================
+   Header
+   ==================================== */
+.dashboard-header {
+    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+    border-radius: var(--dash-radius-xl);
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    box-shadow: 0 10px 40px rgba(30, 58, 138, 0.25);
+    position: relative;
+    overflow: hidden;
+}
+
+.dashboard-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 300px;
+    height: 100%;
+    background: radial-gradient(circle at center, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.dashboard-header-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: relative;
+    z-index: 1;
+}
+
+.dashboard-header-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--dash-radius-md);
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+}
+
+.dashboard-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.dashboard-subtitle {
+    color: rgba(255, 255, 255, 0.8);
+    margin: 4px 0 0 0;
+    font-size: 0.95rem;
+}
+
+/* ====================================
+   Filtres
+   ==================================== */
+.dashboard-filters {
+    margin-bottom: 24px;
+}
+
+/* ====================================
+   Grille de Statistiques
+   ==================================== */
+.dashboard-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 24px;
+}
+
+@media (max-width: 1200px) {
+    .dashboard-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .dashboard-stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ====================================
+   Grille de Graphiques
+   ==================================== */
+.dashboard-charts-grid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.dashboard-chart-item {
+    min-height: 380px;
+}
+
+@media (max-width: 1024px) {
+    .dashboard-charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ====================================
+   Section Inférieure
+   ==================================== */
+.dashboard-bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.dashboard-bottom-item {
+    min-height: 350px;
+}
+
+@media (max-width: 1024px) {
+    .dashboard-bottom-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ====================================
+   États de Chargement et Erreur
+   ==================================== */
+.dashboard-loading {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--dash-gray-500);
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+}
+
+.dashboard-loading-spinner {
+    animation: spin 1s linear infinite;
+    color: var(--dash-primary);
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.dashboard-error {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--dash-danger);
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    text-align: center;
+    padding: 24px;
+}
+
+.dashboard-error h3 {
+    margin: 0;
+    color: var(--dash-gray-800);
+}
+
+.dashboard-error p {
+    color: var(--dash-gray-600);
+    max-width: 400px;
+}
+
+.dashboard-retry-btn {
+    padding: 12px 24px;
+    border-radius: var(--dash-radius-md);
+    border: none;
+    background: linear-gradient(135deg, var(--dash-primary) 0%, #1d4ed8 100%);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    transition: var(--dash-transition);
+}
+
+.dashboard-retry-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4);
+}
+
+/* ====================================
+   Animations Globales
+   ==================================== */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dashboard-stats-grid>*,
+.dashboard-charts-grid>*,
+.dashboard-bottom-grid>* {
+    animation: fadeIn 0.5s ease-out forwards;
+}
+
+.dashboard-stats-grid>*:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.dashboard-stats-grid>*:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.dashboard-stats-grid>*:nth-child(3) {
+    animation-delay: 0.2s;
+}
+
+.dashboard-stats-grid>*:nth-child(4) {
+    animation-delay: 0.25s;
+}
+
+.dashboard-charts-grid>*:nth-child(1) {
+    animation-delay: 0.3s;
+}
+
+.dashboard-charts-grid>*:nth-child(2) {
+    animation-delay: 0.35s;
+}
+
+.dashboard-bottom-grid>*:nth-child(1) {
+    animation-delay: 0.4s;
+}
+
+.dashboard-bottom-grid>*:nth-child(2) {
+    animation-delay: 0.45s;
+}
+
+/* ====================================
+   Glassmorphism Cards
+   ==================================== */
+.dashboard-glass-card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 8px 32px rgba(31, 38, 135, 0.07);
+    border-radius: var(--dash-radius-lg);
+    transition: var(--dash-transition);
+}
+
+.dashboard-glass-card:hover {
+    box-shadow: 0 12px 40px rgba(31, 38, 135, 0.12);
+    transform: translateY(-2px);
+}
+
+/* ====================================
+   Tooltip Styles (Recharts)
+   ==================================== */
+.recharts-tooltip-wrapper {
+    outline: none !important;
+}
+
+.recharts-default-tooltip {
+    background: rgba(255, 255, 255, 0.98) !important;
+    backdrop-filter: blur(8px) !important;
+    border-radius: 12px !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* ====================================
+   Print Styles
+   ==================================== */
+@media print {
+    .dashboard {
+        background: #fff;
+    }
+
+    .dashboard-filters {
+        display: none;
+    }
+
+    .dashboard-header {
+        background: #1e3a8a;
+        box-shadow: none;
+    }
+}
+
+/* ====================================
+   Skeleton Loading
+   ==================================== */
+.skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: var(--dash-radius-md);
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* ====================================
+   Custom Scrollbar
+   ==================================== */
+.dashboard ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.dashboard ::-webkit-scrollbar-track {
+    background: var(--dash-gray-100);
+    border-radius: 4px;
+}
+
+.dashboard ::-webkit-scrollbar-thumb {
+    background: var(--dash-gray-300);
+    border-radius: 4px;
+}
+
+.dashboard ::-webkit-scrollbar-thumb:hover {
+    background: var(--dash-gray-400);
+}

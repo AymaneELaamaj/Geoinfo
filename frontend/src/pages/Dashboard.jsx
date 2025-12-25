@@ -1,430 +1,301 @@
-import { useState, useEffect } from 'react';
-import { 
-  AlertCircle, 
-  CheckCircle, 
-  Clock, 
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  BarChart3,
+  AlertCircle,
+  CheckCircle,
+  Clock,
   TrendingUp,
-  MapPin,
-  BarChart3
+  Loader2
 } from 'lucide-react';
+import {
+  startOfDay,
+  startOfWeek,
+  startOfMonth,
+  subDays,
+  isAfter,
+  format,
+  eachDayOfInterval,
+  subWeeks
+} from 'date-fns';
+import { fr } from 'date-fns/locale';
+
+// Import des nouveaux composants dashboard
+import StatCard from '../components/dashboard/StatCard';
+import LineChartCard from '../components/dashboard/LineChartCard';
+import DonutChartCard from '../components/dashboard/DonutChartCard';
+import ProvincesList from '../components/dashboard/ProvincesList';
+import TimeFilter from '../components/dashboard/TimeFilter';
+import PerformanceCard from '../components/dashboard/PerformanceCard';
+
+// API et constantes
 import { incidentsAPI } from '../services/api';
-import { SECTEURS, STATUTS_INCIDENTS, getSecteurNom, getStatut } from '../data/constants';
+import { SECTEURS, STATUTS_INCIDENTS } from '../data/constants';
+
+import './Dashboard.css';
 
 /**
- * Page Tableau de Bord - Affiche les statistiques sur les incidents
- * Connecté au backend Spring Boot
+ * Tableau de Bord Principal - Design Professionnel
+ * Interface moderne inspirée de Stripe/AWS/Vercel
  */
 const Dashboard = () => {
-  const [stats, setStats] = useState(null);
+  const navigate = useNavigate();
+  const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectedPeriod, setSelectedPeriod] = useState('week');
 
   /**
-   * Charge les incidents et calcule les statistiques
+   * Charger les incidents au montage
    */
   useEffect(() => {
-    const fetchStatsFromIncidents = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        // Récupérer tous les incidents
-        const incidents = await incidentsAPI.getAll();
-        
-        // Calculer les statistiques
-        const total = incidents.length;
-        const traites = incidents.filter(i => i.statut === 'TRAITE').length;
-        const enCours = incidents.filter(i => i.statut === 'EN_COURS_DE_TRAITEMENT').length;
-        const rejetes = incidents.filter(i => i.statut === 'REJETE').length;
-        const valides = incidents.filter(i => i.statut === 'VALIDE').length;
-        const priseEnCompte = incidents.filter(i => i.statut === 'PRISE_EN_COMPTE').length;
-        
-        // Calculer les stats par secteur
-        const secteurStats = (SECTEURS || []).filter(secteur => secteur && secteur.id).reduce((acc, secteur) => {
-          const incidentsSecteur = incidents.filter(i => i.secteurId === secteur.id);
-          acc[secteur.id] = {
-            nom: secteur.nom,
-            total: incidentsSecteur.length,
-            traites: incidentsSecteur.filter(i => i.statut === 'TRAITE').length
-          };
-          return acc;
-        }, {});
-
-        // Calculer les stats par province (exemple avec des données simulées)
-        const parProvince = incidents.reduce((acc, incident) => {
-          const province = incident.province || 'Province inconnue';
-          acc[province] = (acc[province] || 0) + 1;
-          return acc;
-        }, {});
-
-        // Calculer les stats par statut
-        const parStatut = incidents.reduce((acc, incident) => {
-          const statut = incident.statut || 'STATUT_INCONNU';
-          acc[statut] = (acc[statut] || 0) + 1;
-          return acc;
-        }, {});
-
-        setStats({
-          total,
-          traites,
-          enCours,
-          rejetes,
-          valides,
-          priseEnCompte,
-          parSecteur: secteurStats,
-          parProvince,
-          parStatut,
-          incidents: incidents.slice(0, 5) // Les 5 derniers incidents pour l'affichage
-        });
-        
-      } catch (err) {
-        console.error('Erreur de récupération des statistiques:', err);
-        setError('Impossible de charger les statistiques. Vérifiez que le backend (port 8085) est démarré.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStatsFromIncidents();
+    fetchIncidents();
   }, []);
 
+  const fetchIncidents = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await incidentsAPI.getAll();
+      setIncidents(data);
+    } catch (err) {
+      console.error('Erreur de récupération des incidents:', err);
+      setError('Impossible de charger les données. Vérifiez que le backend est démarré.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Filtrer les incidents par période
+   */
+  const filteredIncidents = useMemo(() => {
+    if (!incidents.length) return [];
+
+    const now = new Date();
+    let startDate;
+
+    switch (selectedPeriod) {
+      case 'today':
+        startDate = startOfDay(now);
+        break;
+      case 'week':
+        startDate = startOfWeek(now, { locale: fr });
+        break;
+      case 'month':
+        startDate = startOfMonth(now);
+        break;
+      default:
+        startDate = startOfWeek(now, { locale: fr });
+    }
+
+    return incidents.filter(incident => {
+      if (!incident.dateDeclaration) return true;
+      const incidentDate = new Date(incident.dateDeclaration);
+      return isAfter(incidentDate, startDate);
+    });
+  }, [incidents, selectedPeriod]);
+
+  /**
+   * Calculer les statistiques
+   */
+  const stats = useMemo(() => {
+    const total = filteredIncidents.length;
+    const traites = filteredIncidents.filter(i => i.statut === 'TRAITE').length;
+    const enCours = filteredIncidents.filter(i => i.statut === 'EN_COURS_DE_TRAITEMENT').length;
+    const valides = filteredIncidents.filter(i => i.statut === 'VALIDE').length;
+    const priseEnCompte = filteredIncidents.filter(i => i.statut === 'PRISE_EN_COMPTE').length;
+    const rediges = filteredIncidents.filter(i => i.statut === 'REDIGE').length;
+    const nouveaux = valides + priseEnCompte + rediges;
+
+    const tauxResolution = total > 0 ? ((traites / total) * 100).toFixed(1) : 0;
+
+    return { total, traites, enCours, nouveaux, tauxResolution };
+  }, [filteredIncidents]);
+
+  /**
+   * Données pour le graphique donut (par secteur)
+   */
+  const secteurData = useMemo(() => {
+    return SECTEURS.map(secteur => {
+      const count = filteredIncidents.filter(i => i.secteurId === secteur.id).length;
+      return {
+        name: secteur.nom,
+        value: count,
+        color: secteur.color
+      };
+    }).filter(item => item.value > 0);
+  }, [filteredIncidents]);
+
+  /**
+   * Données pour le graphique d'évolution (7 derniers jours)
+   */
+  const evolutionData = useMemo(() => {
+    const now = new Date();
+    const days = eachDayOfInterval({
+      start: subWeeks(now, 1),
+      end: now
+    });
+
+    return days.map(day => {
+      const dayStart = startOfDay(day);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const dayIncidents = incidents.filter(i => {
+        if (!i.dateDeclaration) return false;
+        const date = new Date(i.dateDeclaration);
+        return date >= dayStart && date < dayEnd;
+      });
+
+      return {
+        name: format(day, 'EEE', { locale: fr }),
+        declares: dayIncidents.length,
+        traites: dayIncidents.filter(i => i.statut === 'TRAITE').length,
+        enCours: dayIncidents.filter(i => i.statut === 'EN_COURS_DE_TRAITEMENT').length
+      };
+    });
+  }, [incidents]);
+
+  /**
+   * Données pour les provinces
+   */
+  const provinceData = useMemo(() => {
+    const provinceCount = {};
+    filteredIncidents.forEach(incident => {
+      const province = incident.province || 'Inconnu';
+      provinceCount[province] = (provinceCount[province] || 0) + 1;
+    });
+
+    return Object.entries(provinceCount)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [filteredIncidents]);
+
+
+
+  // État de chargement
   if (loading) {
     return (
-      <div className="page">
-        <div className="container" style={{ textAlign: 'center', padding: '4rem 0' }}>
-          <div className="spin" style={{ display: 'inline-block', marginBottom: '1rem' }}>
-            <Clock size={48} />
-          </div>
-          <p>Chargement des statistiques...</p>
-        </div>
+      <div className="dashboard-loading">
+        <Loader2 className="dashboard-loading-spinner" size={48} />
+        <p>Chargement du tableau de bord...</p>
       </div>
     );
   }
 
+  // État d'erreur
   if (error) {
     return (
-      <div className="page">
-        <div className="container" style={{ textAlign: 'center', padding: '4rem 0' }}>
-          <AlertCircle size={48} color="#ef4444" style={{ marginBottom: '1rem' }} />
-          <p style={{ color: '#ef4444' }}>{error}</p>
-        </div>
+      <div className="dashboard-error">
+        <AlertCircle size={48} />
+        <h3>Erreur de chargement</h3>
+        <p>{error}</p>
+        <button onClick={fetchIncidents} className="dashboard-retry-btn">
+          Réessayer
+        </button>
       </div>
     );
   }
 
-  if (!stats) {
-    return null;
-  }
-
-  // Calcul du taux de résolution
-  const tauxResolution = stats.total > 0 
-    ? ((stats.traites / stats.total) * 100).toFixed(1)
-    : 0;
-
   return (
-    <div className="page">
-      <div className="container">
-        {/* En-tête */}
-        <div className="dashboard-header" style={{ marginBottom: '2rem' }}>
+    <div className="dashboard">
+      {/* Header */}
+      <header className="dashboard-header">
+        <div className="dashboard-header-content">
+          <div className="dashboard-header-icon">
+            <BarChart3 size={28} />
+          </div>
           <div>
-            <h1 className="page-title">
-              <BarChart3 size={32} style={{ marginRight: '0.75rem' }} />
-              Tableau de Bord
-            </h1>
-            <p className="page-subtitle">
-              Vue d'ensemble et statistiques des incidents signalés
+            <h1 className="dashboard-title">Tableau de Bord</h1>
+            <p className="dashboard-subtitle">
+              Vue d'ensemble des incidents et performances
             </p>
           </div>
         </div>
+      </header>
 
-        {/* Cartes de statistiques principales */}
-        <div className="grid-4" style={{ marginBottom: '2rem' }}>
-          <div className="stat-card">
-            <div className="stat-icon" style={{ backgroundColor: '#3b82f6' }}>
-              <AlertCircle size={24} />
-            </div>
-            <div className="stat-content">
-              <div className="stat-value">{stats.total}</div>
-              <div className="stat-label">Total Incidents</div>
-            </div>
-          </div>
+      {/* Filtres temporels */}
+      <div className="dashboard-filters">
+        <TimeFilter
+          selectedPeriod={selectedPeriod}
+          onPeriodChange={setSelectedPeriod}
+          onRefresh={fetchIncidents}
+          loading={loading}
+        />
+      </div>
 
-          <div className="stat-card">
-            <div className="stat-icon" style={{ backgroundColor: '#10b981' }}>
-              <CheckCircle size={24} />
-            </div>
-            <div className="stat-content">
-              <div className="stat-value">{stats.traites}</div>
-              <div className="stat-label">Incidents Traités</div>
-              <div className="stat-extra" style={{ color: '#10b981', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                {tauxResolution}% de résolution
-              </div>
-            </div>
-          </div>
+      {/* Cartes KPI */}
+      <div className="dashboard-stats-grid">
+        <StatCard
+          icon={AlertCircle}
+          label="Total Incidents"
+          value={stats.total}
+          color="primary"
+          trendLabel="sur la période"
+        />
+        <StatCard
+          icon={CheckCircle}
+          label="Incidents Traités"
+          value={stats.traites}
+          trend={parseFloat(stats.tauxResolution)}
+          trendLabel="de résolution"
+          color="success"
+        />
+        <StatCard
+          icon={Clock}
+          label="En Cours"
+          value={stats.enCours}
+          color="warning"
+          trendLabel="en traitement"
+        />
+        <StatCard
+          icon={TrendingUp}
+          label="Nouveaux"
+          value={stats.nouveaux}
+          color="info"
+          trendLabel="à traiter"
+        />
+      </div>
 
-          <div className="stat-card">
-            <div className="stat-icon" style={{ backgroundColor: '#f59e0b' }}>
-              <Clock size={24} />
-            </div>
-            <div className="stat-content">
-              <div className="stat-value">{stats.enCours}</div>
-              <div className="stat-label">En Cours de Traitement</div>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon" style={{ backgroundColor: '#8b5cf6' }}>
-              <TrendingUp size={24} />
-            </div>
-            <div className="stat-content">
-              <div className="stat-value">{stats.nouveaux}</div>
-              <div className="stat-label">Nouveaux Incidents</div>
-            </div>
-          </div>
+      {/* Graphiques */}
+      <div className="dashboard-charts-grid">
+        <div className="dashboard-chart-item">
+          <LineChartCard
+            data={evolutionData}
+            title="Évolution sur 7 jours"
+          />
         </div>
-
-        {/* Répartition par Secteur */}
-        <div className="card" style={{ marginBottom: '2rem' }}>
-          <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center' }}>
-            <BarChart3 size={24} style={{ marginRight: '0.5rem' }} />
-            Répartition par Secteur
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {SECTEURS?.filter(secteur => secteur && secteur.id).map((secteur) => {
-              const count = (stats.parSecteur && stats.parSecteur[secteur.id] && stats.parSecteur[secteur.id].total) || 0;
-              const percentage = stats.total > 0 
-                ? ((count / stats.total) * 100).toFixed(1)
-                : 0;
-              
-              return (
-                <div key={secteur.id}>
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    marginBottom: '0.5rem'
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center',
-                      gap: '0.5rem'
-                    }}>
-                      <div style={{
-                        width: '12px',
-                        height: '12px',
-                        borderRadius: '50%',
-                        backgroundColor: secteur.color
-                      }} />
-                      <span style={{ fontWeight: '500' }}>{secteur.nom}</span>
-                    </div>
-                    <div style={{ 
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '1rem'
-                    }}>
-                      <span style={{ 
-                        color: 'var(--text-secondary)',
-                        fontSize: '0.875rem'
-                      }}>
-                        {percentage}%
-                      </span>
-                      <span style={{ 
-                        fontWeight: '600',
-                        minWidth: '40px',
-                        textAlign: 'right'
-                      }}>
-                        {count}
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{
-                    width: '100%',
-                    height: '8px',
-                    backgroundColor: 'var(--bg-secondary)',
-                    borderRadius: '4px',
-                    overflow: 'hidden'
-                  }}>
-                    <div style={{
-                      width: `${percentage}%`,
-                      height: '100%',
-                      backgroundColor: secteur.color,
-                      transition: 'width 0.3s ease'
-                    }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        <div className="dashboard-chart-item">
+          <DonutChartCard
+            data={secteurData}
+            title="Répartition par Secteur"
+          />
         </div>
+      </div>
 
-        <div className="grid-2" style={{ marginBottom: '2rem' }}>
-          {/* Top 5 Provinces */}
-          <div className="card">
-            <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center' }}>
-              <MapPin size={24} style={{ marginRight: '0.5rem' }} />
-              Top 5 Provinces
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {Object.entries(stats.parProvince || {})
-                .filter(([province, count]) => province && typeof count === 'number')
-                .sort((a, b) => (b[1] || 0) - (a[1] || 0))
-                .slice(0, 5)
-                .map(([province, count], index) => {
-                  const maxCount = Math.max(...Object.values(stats.parProvince || {}), 1);
-                  const percentage = ((count / maxCount) * 100).toFixed(0);
-                  
-                  return (
-                    <div key={province}>
-                      <div style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '0.5rem'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <div style={{
-                            width: '24px',
-                            height: '24px',
-                            borderRadius: '50%',
-                            backgroundColor: 'var(--primary-color)',
-                            color: 'white',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '0.875rem',
-                            fontWeight: '600'
-                          }}>
-                            {index + 1}
-                          </div>
-                          <span style={{ fontWeight: '500' }}>{province}</span>
-                        </div>
-                        <span style={{ fontWeight: '600', color: 'var(--primary-color)' }}>
-                          {count}
-                        </span>
-                      </div>
-                      <div style={{
-                        width: '100%',
-                        height: '6px',
-                        backgroundColor: 'var(--bg-secondary)',
-                        borderRadius: '3px',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          width: `${percentage}%`,
-                          height: '100%',
-                          backgroundColor: 'var(--primary-color)',
-                          transition: 'width 0.3s ease'
-                        }} />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-
-          {/* Distribution par Statut */}
-          <div className="card">
-            <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center' }}>
-              <CheckCircle size={24} style={{ marginRight: '0.5rem' }} />
-              Distribution par Statut
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {STATUTS_INCIDENTS.filter(statut => statut && statut.value).map((statut) => {
-                const count = (stats.parStatut && stats.parStatut[statut.value]) || 0;
-                const percentage = stats.total > 0 
-                  ? ((count / stats.total) * 100).toFixed(1)
-                  : 0;
-                
-                // Ne pas afficher si count = 0
-                if (count === 0) return null;
-                
-                return (
-                  <div 
-                    key={statut.value}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '0.75rem',
-                      backgroundColor: 'var(--bg-secondary)',
-                      borderRadius: '8px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <span className={`badge badge-${statut.color}`}>
-                        {statut.label}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ 
-                        fontSize: '0.875rem',
-                        color: 'var(--text-secondary)'
-                      }}>
-                        {percentage}%
-                      </span>
-                      <span style={{ 
-                        fontWeight: '600',
-                        minWidth: '30px',
-                        textAlign: 'right'
-                      }}>
-                        {count}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      {/* Section inférieure */}
+      <div className="dashboard-bottom-grid">
+        <div className="dashboard-bottom-item">
+          <ProvincesList
+            data={provinceData}
+            title="Top 5 Provinces"
+            onViewMap={() => navigate('/carte')}
+          />
         </div>
-
-        {/* Résumé Global */}
-        <div className="card" style={{ backgroundColor: 'var(--primary-color)', color: 'white' }}>
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '2rem'
-          }}>
-            <div>
-              <h3 style={{ marginBottom: '0.5rem', color: 'white' }}>
-                Résumé Global
-              </h3>
-              <p style={{ opacity: 0.9, margin: 0 }}>
-                Performance et statistiques clés de la plateforme
-              </p>
-            </div>
-            <div style={{ 
-              display: 'flex',
-              gap: '3rem',
-              flexWrap: 'wrap'
-            }}>
-              <div>
-                <div style={{ fontSize: '2rem', fontWeight: '700' }}>
-                  {Object.keys(stats.parProvince || {}).length}
-                </div>
-                <div style={{ opacity: 0.9, fontSize: '0.875rem' }}>
-                  Provinces couvertes
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '2rem', fontWeight: '700' }}>
-                  {SECTEURS.length}
-                </div>
-                <div style={{ opacity: 0.9, fontSize: '0.875rem' }}>
-                  Secteurs actifs
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '2rem', fontWeight: '700' }}>
-                  {tauxResolution}%
-                </div>
-                <div style={{ opacity: 0.9, fontSize: '0.875rem' }}>
-                  Taux de résolution
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className="dashboard-bottom-item">
+          <PerformanceCard
+            tauxResolution={parseFloat(stats.tauxResolution)}
+            provincesCount={Object.keys(
+              filteredIncidents.reduce((acc, i) => {
+                if (i.province) acc[i.province] = true;
+                return acc;
+              }, {})
+            ).length}
+            secteursCount={SECTEURS.length}
+            incidentsBlocked={filteredIncidents.filter(i => i.statut === 'BLOQUE').length}
+          />
         </div>
       </div>
     </div>

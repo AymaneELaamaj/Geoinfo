@@ -91,8 +91,8 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
-        
-        console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+
+        console.log(`🚀 Fetch Request: ${config.method?.toUpperCase()} ${config.url}`);
         return config;
       },
       (error) => {
@@ -109,7 +109,7 @@ class ApiClient {
       },
       (error) => {
         console.error('❌ Response Error:', error);
-        
+
         if (error.response?.status === 401) {
           AuthManager.clearToken();
           window.location.href = '/connexion';
@@ -162,18 +162,18 @@ class ApiClient {
     }
 
     const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
-    
+
     console.log(`🚀 Fetch Request: ${method} ${fullUrl}`);
-    
+
     const response = await fetch(fullUrl, config);
-    
+
     if (!response.ok) {
       if (response.status === 401) {
         AuthManager.clearToken();
         window.location.href = '/connexion';
         throw new Error('Session expirée. Veuillez vous reconnecter.');
       }
-      
+
       const errorText = await response.text();
       throw new Error(errorText || `Erreur HTTP: ${response.status}`);
     }
@@ -182,7 +182,7 @@ class ApiClient {
     if (contentType && contentType.includes('application/json')) {
       return await response.json();
     }
-    
+
     return await response.text();
   }
 }
@@ -196,23 +196,9 @@ const apiClient = new ApiClient();
 export const healthAPI = {
   // Test de santé du backend
   health: () => apiClient.request({ method: 'GET', url: '/health' }),
-  
+
   // Test de connectivité
-  testConnection: () => apiClient.request({ method: 'GET', url: '/test/connection' }),
-  
-  // Test POST
-  testData: (data) => apiClient.request({ 
-    method: 'POST', 
-    url: '/test/data',
-    data 
-  }),
-  
-  // Test d'authentification
-  testAuth: (credentials) => apiClient.request({
-    method: 'POST',
-    url: '/test/auth',
-    data: credentials
-  })
+  testConnection: () => apiClient.request({ method: 'GET', url: '/test/connection' })
 };
 
 /**
@@ -226,10 +212,10 @@ export const incidentsAPI = {
   getById: (id) => apiClient.request({ method: 'GET', url: `/incidents/${id}` }),
 
   // Met à jour un incident
-  update: (id, data) => apiClient.request({ 
-    method: 'PUT', 
+  update: (id, data) => apiClient.request({
+    method: 'PUT',
     url: `/incidents/${id}`,
-    data 
+    data
   }),
 
   // Supprime un incident
@@ -243,12 +229,12 @@ export const citoyensAPI = {
   // Déclare un nouvel incident avec photo
   declarerIncident: async (incidentData, photo = null) => {
     const formData = new FormData();
-    
+
     // Ajouter les données JSON
-    formData.append('data', new Blob([JSON.stringify(incidentData)], { 
-      type: 'application/json' 
+    formData.append('data', new Blob([JSON.stringify(incidentData)], {
+      type: 'application/json'
     }));
-    
+
     // Ajouter la photo si elle existe
     if (photo) {
       formData.append('photo', photo);
@@ -262,19 +248,9 @@ export const citoyensAPI = {
     });
   },
 
-  // Récupère les statistiques des incidents par citoyen
-  getStatsIncidents: (citoyenId) => 
-    apiClient.request({ method: 'GET', url: `/citoyens/${citoyenId}/incidents/stats` })
-};
-
-/**
- * Service pour la gestion des professionnels
- */
-export const professionnelsAPI = {
-  getAll: () => apiClient.request({ method: 'GET', url: '/professionnels' }),
-  getById: (id) => apiClient.request({ method: 'GET', url: `/professionnels/${id}` }),
-  add: (data) => apiClient.request({ method: 'POST', url: '/professionnels', data }),
-  delete: (id) => apiClient.request({ method: 'DELETE', url: `/professionnels/${id}` })
+  // Récupère les incidents par deviceId (UUID citoyen)
+  getIncidentsByDeviceId: (deviceId) =>
+    apiClient.request({ method: 'GET', url: `/citoyens/incidents/device/${deviceId}` })
 };
 
 /**
@@ -282,29 +258,88 @@ export const professionnelsAPI = {
  */
 export const secteursAPI = {
   getAll: () => apiClient.request({ method: 'GET', url: '/secteurs' }),
-  getById: (id) => apiClient.request({ method: 'GET', url: `/secteurs/${id}` }),
-  add: (data) => apiClient.request({ method: 'POST', url: '/secteurs', data }),
-  update: (id, data) => apiClient.request({ method: 'PUT', url: `/secteurs/${id}`, data }),
-  delete: (id) => apiClient.request({ method: 'DELETE', url: `/secteurs/${id}` })
+  getById: (id) => apiClient.request({ method: 'GET', url: `/secteurs/${id}` })
 };
 
 /**
- * Service pour la gestion des provinces
+ * Service pour les endpoints publics (sans authentification)
+ * Utilisé par la PWA pour les citoyens anonymes
  */
-export const provincesAPI = {
-  getAll: () => apiClient.request({ method: 'GET', url: '/provinces' }),
-  getById: (id) => apiClient.request({ method: 'GET', url: `/provinces/${id}` })
-};
+export const publicAPI = {
+  /**
+   * Déclare un incident de manière anonyme (PWA uniquement)
+   * @param {Object} incidentData - Données de l'incident incluant deviceId
+   * @param {File} photo - Photo obligatoire
+   * @returns {Promise<Object>} Incident créé
+   */
+  declarerIncidentAnonymous: async (incidentData, photo) => {
+    const formData = new FormData();
 
-/**
- * Service pour la gestion des utilisateurs
- */
-export const utilisateursAPI = {
-  getAll: () => apiClient.request({ method: 'GET', url: '/utilisateurs' }),
-  getById: (id) => apiClient.request({ method: 'GET', url: `/utilisateurs/${id}` }),
-  add: (data) => apiClient.request({ method: 'POST', url: '/utilisateurs', data }),
-  update: (id, data) => apiClient.request({ method: 'PUT', url: `/utilisateurs/${id}`, data }),
-  delete: (id) => apiClient.request({ method: 'DELETE', url: `/utilisateurs/${id}` })
+    // Ajouter les données de l'incident en JSON
+    formData.append('incident', new Blob([JSON.stringify(incidentData)], {
+      type: 'application/json'
+    }));
+
+    // Ajouter la photo
+    if (photo) {
+      formData.append('photo', photo);
+    }
+
+    return apiClient.fetchRequest({
+      method: 'POST',
+      url: '/public/incidents',
+      data: formData,
+      headers: {} // Laisser le navigateur gérer le Content-Type
+    });
+  },
+
+  /**
+   * Récupère les incidents par deviceId (UUID)
+   * @param {string} deviceId - UUID de l'appareil citoyen
+   * @returns {Promise<Array>} Liste des incidents
+   */
+  getIncidentsByDeviceId: async (deviceId) => {
+    return apiClient.fetchRequest({
+      method: 'GET',
+      url: `/public/incidents/${deviceId}`
+    });
+  },
+
+  /**
+   * Récupère les secteurs (endpoint public)
+   * @returns {Promise<Array>} Liste des secteurs
+   */
+  getSecteurs: async () => {
+    return apiClient.fetchRequest({
+      method: 'GET',
+      url: '/secteurs'
+    });
+  },
+
+  /**
+   * Récupère un compte par UUID (pour changement d'appareil)
+   * @param {string} uuid - UUID de l'appareil à récupérer
+   * @returns {Promise<Object>} Détails du compte et incidents
+   */
+  recoverAccount: async (uuid) => {
+    const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/citoyens/recover-account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uuid })
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('Trop de tentatives. Réessayez dans 1 heure.');
+      }
+      if (response.status === 404) {
+        throw new Error('❌ Identifiant invalide. Aucun incident trouvé.');
+      }
+      throw new Error('Erreur lors de la récupération du compte');
+    }
+
+    return response.json();
+  }
 };
 
 /**
@@ -319,20 +354,20 @@ export const authAPI = {
         url: '/auth/login',
         data: credentials
       });
-      
+
       // Stocker les informations d'authentification
       AuthManager.setToken(response.token, response.utilisateur);
-      localStorage.setItem('role', response.role);
-      
+
+      if (response.utilisateur && response.utilisateur.role) {
+        localStorage.setItem('role', response.utilisateur.role);
+      }
+
       return response;
     } catch (error) {
       console.error('Erreur de connexion:', error);
       throw new Error('Identifiants incorrects');
     }
   },
-
-  // Récupérer l'utilisateur connecté
-  me: () => apiClient.request({ method: 'GET', url: '/auth/me' }),
 
   // Déconnexion
   logout: () => {
@@ -366,77 +401,37 @@ export const adminAPI = {
   // Gestion des incidents
   getIncidentsEnAttente: () => apiClient.request({ method: 'GET', url: '/admin/incidents/en-attente' }),
   validerIncident: (id) => apiClient.request({ method: 'PUT', url: `/admin/incidents/${id}/valider` }),
-  rejeterIncident: (id, motif) => apiClient.request({ 
-    method: 'PUT', 
+  rejeterIncident: (id, motif) => apiClient.request({
+    method: 'PUT',
     url: `/admin/incidents/${id}/rejeter`,
     data: { motifRejet: motif }
   }),
-  getIncidentsRejetes: () => apiClient.request({ method: 'GET', url: '/admin/incidents/rejetes' }),
 
   // Affectation
   affecterIncident: (incidentId, professionnelId) => apiClient.request({
     method: 'POST',
     url: `/admin/incidents/${incidentId}/affecter/${professionnelId}`
   }),
-  reaffecterIncident: (incidentId, professionnelId) => apiClient.request({
-    method: 'PUT',
-    url: `/admin/incidents/${incidentId}/reaffecter/${professionnelId}`
-  }),
 
   // Gestion des professionnels
   getAllProfessionnels: () => apiClient.request({ method: 'GET', url: '/admin/professionnels' }),
-  createProfessionnel: (data) => apiClient.request({ 
-    method: 'POST', 
+  createProfessionnel: (data) => apiClient.request({
+    method: 'POST',
     url: '/admin/professionnels',
     data
-  }),
-  updateProfessionnel: (id, data) => apiClient.request({
-    method: 'PUT',
-    url: `/admin/professionnels/${id}`,
-    data
-  }),
-  toggleProfessionnelStatus: (id) => apiClient.request({
-    method: 'PATCH',
-    url: `/admin/professionnels/${id}/toggle-status`
   }),
   deleteProfessionnel: (id) => apiClient.request({
     method: 'DELETE',
     url: `/admin/professionnels/${id}`
-  }),
-
-  // Dashboard et statistiques
-  getDashboard: () => apiClient.request({ method: 'GET', url: '/admin/dashboard' }),
-  getHistorique: (page = 0, size = 20) => apiClient.request({
-    method: 'GET',
-    url: `/admin/historique?page=${page}&size=${size}`
-  }),
-  getStatistiquesBySecteur: () => apiClient.request({
-    method: 'GET',
-    url: '/admin/statistiques/secteurs'
-  }),
-  getRapportProfessionnels: () => apiClient.request({
-    method: 'GET',
-    url: '/admin/rapports/professionnels'
-  }),
-  exportData: (type) => apiClient.request({
-    method: 'GET',
-    url: `/admin/export/${type}`
   })
 };
 
 /**
  * Service pour les fonctionnalités PROFESSIONNEL
  */
-const professionnelAPI = {
+export const professionnelAPI = {
   // Gestion des incidents
-  getMesIncidents: (params = {}) => {
-    const { statut, page = 0, size = 10, sortBy = 'dateCreation', sortDir = 'desc' } = params;
-    let url = `/professionnel/incidents?page=${page}&size=${size}&sortBy=${sortBy}&sortDir=${sortDir}`;
-    if (statut) url += `&statut=${statut}`;
-    
-    return apiClient.request({ method: 'GET', url });
-  },
-  getIncidentById: (id) => apiClient.request({ method: 'GET', url: `/professionnel/incidents/${id}` }),
+  getMesIncidents: () => apiClient.request({ method: 'GET', url: '/professionnel/incidents' }),
 
   // Changement de statut
   prendreEnCompte: (id) => apiClient.request({
@@ -451,56 +446,27 @@ const professionnelAPI = {
     method: 'PUT',
     url: `/professionnel/incidents/${id}/traiter`,
     data: { descriptionTraitement: description }
-  }),
-  bloquerIncident: (id, motif) => apiClient.request({
-    method: 'PUT',
-    url: `/professionnel/incidents/${id}/bloquer`,
-    data: { motifBlocage: motif }
-  }),
-  debloquerIncident: (id) => apiClient.request({
-    method: 'PUT',
-    url: `/professionnel/incidents/${id}/debloquer`
-  }),
-
-  // Dashboard et profil
-  getDashboard: () => apiClient.request({ method: 'GET', url: '/professionnel/dashboard' }),
-  getProfil: () => apiClient.request({ method: 'GET', url: '/professionnel/profil' }),
-  updateProfil: (data) => apiClient.request({
-    method: 'PUT',
-    url: '/professionnel/profil',
-    data
-  }),
-
-  // Fonctionnalités avancées
-  getHistorique: (page = 0, size = 20) => apiClient.request({
-    method: 'GET',
-    url: `/professionnel/historique?page=${page}&size=${size}`
-  }),
-  getStatistiques: () => apiClient.request({ method: 'GET', url: '/professionnel/statistiques' }),
-  getCollegues: () => apiClient.request({ method: 'GET', url: '/professionnel/collegues' }),
-  marquerUrgent: (id) => apiClient.request({
-    method: 'PUT',
-    url: `/professionnel/incidents/${id}/marquer-urgent`
-  }),
-  ajouterCommentaire: (id, commentaire) => apiClient.request({
-    method: 'POST',
-    url: `/professionnel/incidents/${id}/commentaire`,
-    data: commentaire
   })
 };
 
-// Export par défaut
+/**
+ * Service pour la gestion des statistiques
+ */
+export const statistiquesAPI = {
+  // Récupère les statistiques globales
+  getStatistiques: () => apiClient.request({ method: 'GET', url: '/statistiques' })
+};
+
+/**
+ * Export global de tous les services API
+ */
 const api = {
-  health: healthAPI,
   incidents: incidentsAPI,
-  citoyens: citoyensAPI,
-  professionnels: professionnelsAPI,
   secteurs: secteursAPI,
-  provinces: provincesAPI,
-  utilisateurs: utilisateursAPI,
-  auth: authAPI,
+  citoyens: citoyensAPI,
   admin: adminAPI,
-  professionnel: professionnelAPI
+  professionnel: professionnelAPI,
+  statistiques: statistiquesAPI
 };
 
 export default api;

@@ -1,6 +1,5 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import authService from '../services/authService';
 
 /**
  * Composant pour protéger les routes nécessitant une authentification
@@ -10,11 +9,11 @@ import authService from '../services/authService';
  * @param {boolean} props.adminOnly - Si true, n'autorise que les admins
  * @param {boolean} props.professionnelOnly - Si true, n'autorise que les professionnels
  */
-const ProtectedRoute = ({ 
-  children, 
-  requiredRole, 
-  adminOnly = false, 
-  professionnelOnly = false 
+const ProtectedRoute = ({
+  children,
+  requiredRole,
+  adminOnly = false,
+  professionnelOnly = false
 }) => {
   const { isAuthenticated, user, loading } = useAuth();
 
@@ -29,26 +28,29 @@ const ProtectedRoute = ({
     );
   }
 
-  // Vérifier l'authentification
-  if (!isAuthenticated || !authService.isAuthenticated()) {
+  // Vérifier l'authentification - utiliser UNIQUEMENT le contexte
+  if (!isAuthenticated() || !user) {
     return <Navigate to="/connexion" replace />;
   }
 
-  const userRole = authService.getRole();
+  // Normaliser le rôle (supporter 'admin' et 'ADMIN')
+  const userRole = user?.role?.toUpperCase();
 
   // Vérifications de rôles spécifiques
-  if (adminOnly && !authService.isAdmin()) {
+  if (adminOnly && userRole !== 'ADMIN') {
     return <Navigate to="/" replace />;
   }
 
-  if (professionnelOnly && !authService.isProfessionnel()) {
+  if (professionnelOnly && userRole !== 'PROFESSIONNEL') {
     return <Navigate to="/" replace />;
   }
 
   // Vérifier le rôle requis
   if (requiredRole) {
     const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    if (!allowedRoles.includes(userRole)) {
+    const normalizedAllowedRoles = allowedRoles.map(r => r.toUpperCase());
+
+    if (!normalizedAllowedRoles.includes(userRole)) {
       // Redirection intelligente basée sur le rôle
       if (userRole === 'ADMIN') {
         return <Navigate to="/admin" replace />;
@@ -64,4 +66,5 @@ const ProtectedRoute = ({
 };
 
 export default ProtectedRoute;
+
 

@@ -1,4 +1,4 @@
-# 🛠️ Commandes Utiles - GeoInfo
+# 🛠️ Commandes Utiles - CityAlert
 
 ## 📦 Installation et Configuration
 
@@ -461,7 +461,7 @@ Start-Process powershell -ArgumentList "cd frontend; npm run dev"
 # Ouvrir le navigateur
 Start-Process "http://localhost:5173"
 
-Write-Host "✅ GeoInfo démarré!" -ForegroundColor Green
+Write-Host "✅ CityAlert démarré!" -ForegroundColor Green
 Write-Host "Frontend: http://localhost:5173" -ForegroundColor Cyan
 Write-Host "Backend: http://localhost:8081" -ForegroundColor Cyan
 Write-Host "Swagger: http://localhost:8081/swagger-ui.html" -ForegroundColor Cyan

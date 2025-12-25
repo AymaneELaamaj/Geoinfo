@@ -1,4 +1,4 @@
-# Documentation API - Plateforme GeoInfo
+# Documentation API - Plateforme CityAlert
 
 ## 📚 Table des Matières
 - [Authentification](#authentification)

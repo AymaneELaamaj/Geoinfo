@@ -3,9 +3,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { formatDate } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { 
-  Briefcase, 
-  CheckCircle, 
+import {
+  Briefcase,
+  CheckCircle,
   Clock,
   AlertTriangle,
   Eye,
@@ -22,11 +22,11 @@ import {
  */
 const ProfessionnelDashboard = () => {
   const { user } = useAuth();
-  
+
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   // Modal de traitement
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [isTraitementModalOpen, setIsTraitementModalOpen] = useState(false);
@@ -50,7 +50,7 @@ const ProfessionnelDashboard = () => {
         page: 0,
         size: 50
       });
-      
+
       // Si la réponse est paginée
       const incidentsList = response.content || response;
       setIncidents(incidentsList);
@@ -145,107 +145,317 @@ const ProfessionnelDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      {/* En-tête */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-          <Briefcase className="w-8 h-8 text-purple-600" />
-          Mes Incidents
-        </h1>
-        <p className="text-gray-600 mt-1">
-          Bienvenue {user?.nom} {user?.prenom} - Secteur : {user?.secteurAffectate} - Spécialité : {user?.typeIncident}
-        </p>
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+      padding: '24px'
+    }}>
+      {/* En-tête moderne */}
+      <div style={{
+        background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
+        borderRadius: '20px',
+        padding: '32px',
+        marginBottom: '24px',
+        boxShadow: '0 10px 40px rgba(124, 58, 237, 0.3)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '16px',
+            background: 'rgba(255, 255, 255, 0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <Briefcase style={{ width: '32px', height: '32px', color: '#fff' }} />
+          </div>
+          <div>
+            <h1 style={{
+              color: '#ffffff',
+              fontSize: '2rem',
+              fontWeight: '700',
+              margin: 0
+            }}>
+              Mes Incidents
+            </h1>
+            <p style={{
+              color: 'rgba(255, 255, 255, 0.9)',
+              margin: '8px 0 0 0',
+              fontSize: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}>
+              <span>👋 Bienvenue {user?.prenom} {user?.nom}</span>
+              <span style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                padding: '4px 12px',
+                borderRadius: '12px',
+                fontSize: '0.875rem'
+              }}>
+                🏢 Secteur : {user?.secteurAffectate || 'N/A'}
+              </span>
+              <span style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                padding: '4px 12px',
+                borderRadius: '12px',
+                fontSize: '0.875rem'
+              }}>
+                🔧 Spécialité : {user?.typeIncident || 'N/A'}
+              </span>
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Message d'erreur */}
+      {/* Message d'erreur stylisé */}
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+        <div style={{
+          marginBottom: '24px',
+          padding: '16px 20px',
+          background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+          border: '1px solid #fecaca',
+          borderRadius: '12px',
+          color: '#dc2626',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <span style={{ fontSize: '1.5rem' }}>⚠️</span>
           {error}
         </div>
       )}
 
-      {/* Liste des incidents */}
+      {/* Liste des incidents ou état vide */}
       {incidents.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
-          <CheckCircle className="w-16 h-16 mx-auto text-green-500 mb-4" />
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">
+        <div style={{
+          textAlign: 'center',
+          padding: '80px 24px',
+          background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)',
+          borderRadius: '24px',
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+          border: '1px solid #e2e8f0'
+        }}>
+          <div style={{
+            width: '100px',
+            height: '100px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 24px auto'
+          }}>
+            <CheckCircle style={{ width: '48px', height: '48px', color: '#16a34a' }} />
+          </div>
+          <h3 style={{
+            fontSize: '1.5rem',
+            fontWeight: '700',
+            color: '#1e293b',
+            margin: '0 0 12px 0'
+          }}>
             Aucun incident disponible
           </h3>
-          <p className="text-gray-500">
+          <p style={{
+            color: '#64748b',
+            fontSize: '1rem',
+            margin: 0
+          }}>
             Aucun incident validé ne correspond à votre secteur et spécialité.
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="p-4 bg-gray-50 border-b">
-            <h2 className="text-lg font-semibold text-gray-800">
-              {incidents.length} incident(s) validé(s) disponible(s)
-            </h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Ces incidents sont dans votre secteur et correspondent à votre spécialité
-            </p>
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '20px',
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.08)',
+          overflow: 'hidden'
+        }}>
+          {/* Header de la liste */}
+          <div style={{
+            padding: '20px 24px',
+            background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div>
+              <h2 style={{
+                fontSize: '1.25rem',
+                fontWeight: '700',
+                color: '#1e293b',
+                margin: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                📋 Incidents à traiter
+                <span style={{
+                  background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
+                  color: '#fff',
+                  padding: '4px 12px',
+                  borderRadius: '12px',
+                  fontSize: '0.875rem',
+                  fontWeight: '600'
+                }}>
+                  {incidents.length}
+                </span>
+              </h2>
+              <p style={{
+                color: '#64748b',
+                fontSize: '0.875rem',
+                margin: '6px 0 0 0'
+              }}>
+                Ces incidents sont dans votre secteur et correspondent à votre spécialité
+              </p>
+            </div>
           </div>
 
-          <div className="divide-y divide-gray-200">
-            {incidents.map((incident) => (
-              <div key={incident.id} className="p-6 hover:bg-gray-50 transition-colors">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl font-bold text-gray-900">
+          {/* Liste des incident cards */}
+          <div style={{ padding: '16px' }}>
+            {incidents.map((incident, index) => (
+              <div
+                key={incident.id}
+                style={{
+                  background: 'linear-gradient(145deg, #ffffff 0%, #fafafa 100%)',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '16px',
+                  padding: '24px',
+                  marginBottom: index < incidents.length - 1 ? '16px' : 0,
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)'
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.1)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.04)';
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '24px' }}>
+                  <div style={{ flex: 1 }}>
+                    {/* ID et badges */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                      <span style={{
+                        fontSize: '1.5rem',
+                        fontWeight: '800',
+                        color: '#6366f1',
+                        fontFamily: 'monospace'
+                      }}>
                         #{incident.id}
                       </span>
-                      <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                      <span style={{
+                        padding: '4px 12px',
+                        background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
+                        color: '#1d4ed8',
+                        borderRadius: '8px',
+                        fontSize: '0.8rem',
+                        fontWeight: '600'
+                      }}>
                         {incident.statut}
                       </span>
                       {incident.typeIncident && (
-                        <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
-                          {incident.typeIncident}
+                        <span style={{
+                          padding: '4px 12px',
+                          background: 'linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%)',
+                          color: '#7c3aed',
+                          borderRadius: '8px',
+                          fontSize: '0.8rem',
+                          fontWeight: '600'
+                        }}>
+                          🔧 {incident.typeIncident}
                         </span>
                       )}
                     </div>
 
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    {/* Titre */}
+                    <h3 style={{
+                      fontSize: '1.125rem',
+                      fontWeight: '700',
+                      color: '#1e293b',
+                      margin: '0 0 8px 0'
+                    }}>
                       {incident.titre}
                     </h3>
 
-                    <p className="text-gray-600 mb-3">
+                    {/* Description */}
+                    <p style={{
+                      color: '#64748b',
+                      fontSize: '0.9rem',
+                      lineHeight: '1.5',
+                      margin: '0 0 16px 0'
+                    }}>
                       {incident.description}
                     </p>
 
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-500">Secteur :</span>
-                        <span className="ml-2 font-medium text-gray-900">
+                    {/* Infos grid */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                      gap: '12px',
+                      fontSize: '0.875rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ color: '#94a3b8' }}>🏢 Secteur:</span>
+                        <span style={{ fontWeight: '600', color: '#334155' }}>
                           {incident.secteur?.nom || 'N/A'}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-gray-500">Province :</span>
-                        <span className="ml-2 font-medium text-gray-900">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ color: '#94a3b8' }}>🗺️ Province:</span>
+                        <span style={{ fontWeight: '600', color: '#334155' }}>
                           {incident.province?.nom || 'N/A'}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-gray-500">Date :</span>
-                        <span className="ml-2 font-medium text-gray-900">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ color: '#94a3b8' }}>📅 Date:</span>
+                        <span style={{ fontWeight: '600', color: '#334155' }}>
                           {formatDate(incident.dateCreation)}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-gray-500">Adresse :</span>
-                        <span className="ml-2 font-medium text-gray-900">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ color: '#94a3b8' }}>📍 Adresse:</span>
+                        <span style={{ fontWeight: '600', color: '#334155' }}>
                           {incident.adresse || 'Non précisée'}
                         </span>
                       </div>
                     </div>
                   </div>
 
+                  {/* Bouton traiter */}
                   <button
                     onClick={() => openTraitementModal(incident)}
-                    className="ml-6 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-2 font-medium"
+                    style={{
+                      padding: '14px 24px',
+                      background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '12px',
+                      fontWeight: '600',
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      boxShadow: '0 4px 12px rgba(124, 58, 237, 0.3)',
+                      transition: 'all 0.2s ease',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(124, 58, 237, 0.4)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.3)';
+                    }}
                   >
-                    <PlayCircle className="w-5 h-5" />
+                    <PlayCircle style={{ width: '20px', height: '20px' }} />
                     Traiter
                   </button>
                 </div>
@@ -343,8 +553,8 @@ const TraitementModal = ({
                 nouveauStatut === 'TRAITE'
                   ? 'Décrivez les actions effectuées pour résoudre cet incident...'
                   : nouveauStatut === 'BLOQUE'
-                  ? 'Expliquez pourquoi cet incident est bloqué...'
-                  : 'Ajoutez un commentaire...'
+                    ? 'Expliquez pourquoi cet incident est bloqué...'
+                    : 'Ajoutez un commentaire...'
               }
               required={needsDescription}
             />

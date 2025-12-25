@@ -1,136 +1,406 @@
-import { useState, useEffect } from 'react';
-import { Filter, MapPin, Calendar, AlertCircle, Clock, CheckCircle, XCircle } from 'lucide-react';
-// 🛑 SUPPRIMER: import { generateMockIncidents } from '../data/mockData'; 
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Search,
+  Filter,
+  MapPin,
+  Calendar,
+  AlertCircle,
+  Clock,
+  CheckCircle,
+  XCircle,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Map,
+  RefreshCw,
+  X,
+  List,
+  LayoutGrid,
+  Loader2
+} from 'lucide-react';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
-// Import de l'API adaptée au backend
-import { incidentsAPI, adminAPI } from '../services/api'; 
+import { incidentsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  SECTEURS, 
+import {
+  SECTEURS,
   PROVINCES_MAP,
   STATUTS_INCIDENTS
 } from '../data/constants';
 
 /**
- * Fonctions utilitaires pour le rendu des incidents
+ * Fonctions utilitaires
  */
 const getStatut = (statutValue) => {
-  return STATUTS_INCIDENTS.find(statut => statut.value === statutValue) || 
-         { value: statutValue, label: statutValue, color: '#6b7280' };
+  return STATUTS_INCIDENTS.find(statut => statut.value === statutValue) ||
+    { value: statutValue, label: statutValue, color: '#6b7280' };
 };
 
-const getSecteurColor = (secteurId) => {
+const getSecteurInfo = (secteurId) => {
   const secteur = SECTEURS.find(s => s.id === secteurId);
-  return secteur ? secteur.color : '#6b7280';
-};
-
-const getSecteurNom = (secteurId) => {
-  const secteur = SECTEURS.find(s => s.id === secteurId);
-  return secteur ? secteur.nom : 'Inconnu';
+  return secteur || { nom: 'Inconnu', color: '#6b7280' };
 };
 
 const getProvinceNom = (provinceId) => {
   const province = PROVINCES_MAP.find(p => p.id === provinceId);
-  return province ? province.nom : 'Inconnu';
+  return province ? province.nom : null;
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A';
+  try {
+    return format(new Date(dateString), 'dd MMM yyyy HH:mm', { locale: fr });
+  } catch {
+    return 'N/A';
+  }
 };
 
 /**
- * Page Liste des Incidents - Affichage avec filtres et pagination
+ * Page Liste des Incidents - Design Professionnel
  */
 const Incidents = () => {
-  const { user } = useAuth(); // Récupérer l'utilisateur connecté
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [incidents, setIncidents] = useState([]);
-  const [filteredIncidents, setFilteredIncidents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState('table'); // 'table' ou 'cards'
   const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(true); // 👈 Gestion du chargement
-  const [error, setError] = useState(null); // 👈 Gestion de l'erreur
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortBy, setSortBy] = useState('dateDeclaration');
+  const [sortOrder, setSortOrder] = useState('desc');
+
   const [filters, setFilters] = useState({
     secteur: '',
     province: '',
     statut: '',
   });
 
-  // États pour la modale de validation/rejet
+  // Modal states
   const [showModal, setShowModal] = useState(false);
-  const [modalAction, setModalAction] = useState(null); // 'valider' ou 'rejeter'
+  const [modalAction, setModalAction] = useState(null);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [motif, setMotif] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
-  const incidentsParPage = 10;
+  // Styles
+  const styles = {
+    container: {
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)',
+      padding: '24px'
+    },
+    header: {
+      background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)',
+      borderRadius: '20px',
+      padding: '28px 32px',
+      marginBottom: '24px',
+      boxShadow: '0 10px 40px rgba(30, 58, 138, 0.25)',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: '16px'
+    },
+    headerLeft: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '16px'
+    },
+    headerIcon: {
+      width: '56px',
+      height: '56px',
+      borderRadius: '14px',
+      background: 'rgba(255, 255, 255, 0.2)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#fff'
+    },
+    title: {
+      fontSize: '1.75rem',
+      fontWeight: '700',
+      color: '#fff',
+      margin: 0
+    },
+    subtitle: {
+      color: 'rgba(255, 255, 255, 0.8)',
+      margin: '4px 0 0 0',
+      fontSize: '0.95rem'
+    },
+    statsBar: {
+      display: 'flex',
+      gap: '16px',
+      flexWrap: 'wrap'
+    },
+    statBadge: {
+      background: 'rgba(255, 255, 255, 0.15)',
+      padding: '8px 16px',
+      borderRadius: '10px',
+      color: '#fff',
+      fontSize: '0.85rem',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px'
+    },
+    searchBar: {
+      background: 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: 'blur(10px)',
+      borderRadius: '16px',
+      padding: '16px 20px',
+      marginBottom: '16px',
+      boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+      border: '1px solid rgba(255, 255, 255, 0.18)'
+    },
+    searchInput: {
+      width: '100%',
+      padding: '12px 16px 12px 44px',
+      borderRadius: '12px',
+      border: '2px solid #e2e8f0',
+      fontSize: '0.95rem',
+      outline: 'none',
+      transition: 'all 0.2s ease'
+    },
+    filtersContainer: {
+      background: 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: 'blur(10px)',
+      borderRadius: '16px',
+      padding: '20px',
+      marginBottom: '16px',
+      boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+      border: '1px solid rgba(255, 255, 255, 0.18)'
+    },
+    filterGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+      gap: '16px',
+      marginTop: '16px'
+    },
+    select: {
+      width: '100%',
+      padding: '12px 16px',
+      borderRadius: '10px',
+      border: '2px solid #e2e8f0',
+      fontSize: '0.9rem',
+      outline: 'none',
+      background: '#fff',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease'
+    },
+    tableContainer: {
+      background: 'rgba(255, 255, 255, 0.95)',
+      backdropFilter: 'blur(10px)',
+      borderRadius: '16px',
+      overflow: 'hidden',
+      boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+      border: '1px solid rgba(255, 255, 255, 0.18)'
+    },
+    tableHeader: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '16px 20px',
+      borderBottom: '1px solid #e2e8f0',
+      flexWrap: 'wrap',
+      gap: '12px'
+    },
+    table: {
+      width: '100%',
+      borderCollapse: 'collapse'
+    },
+    th: {
+      padding: '14px 16px',
+      textAlign: 'left',
+      fontSize: '0.75rem',
+      fontWeight: '700',
+      color: '#64748b',
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      background: '#f8fafc',
+      borderBottom: '2px solid #e2e8f0'
+    },
+    td: {
+      padding: '16px',
+      borderBottom: '1px solid #f1f5f9',
+      verticalAlign: 'middle'
+    },
+    row: {
+      transition: 'all 0.2s ease',
+      cursor: 'pointer'
+    },
+    pagination: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '16px 20px',
+      borderTop: '1px solid #e2e8f0',
+      flexWrap: 'wrap',
+      gap: '12px'
+    },
+    pageBtn: {
+      padding: '8px 14px',
+      borderRadius: '8px',
+      border: '1px solid #e2e8f0',
+      background: '#fff',
+      cursor: 'pointer',
+      fontSize: '0.875rem',
+      fontWeight: '500',
+      transition: 'all 0.2s ease'
+    },
+    card: {
+      background: '#fff',
+      borderRadius: '12px',
+      padding: '20px',
+      border: '1px solid #e2e8f0',
+      transition: 'all 0.2s ease',
+      cursor: 'pointer'
+    },
+    sectorBadge: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      padding: '4px 12px',
+      borderRadius: '20px',
+      fontSize: '0.75rem',
+      fontWeight: '600'
+    },
+    statusBadge: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '4px',
+      padding: '4px 10px',
+      borderRadius: '6px',
+      fontSize: '0.75rem',
+      fontWeight: '600'
+    },
+    actionBtn: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      padding: '8px 14px',
+      borderRadius: '8px',
+      border: 'none',
+      cursor: 'pointer',
+      fontSize: '0.85rem',
+      fontWeight: '600',
+      transition: 'all 0.2s ease'
+    }
+  };
 
-  /**
-    * Charge les données du backend au montage du composant
-    */
+  const statusColors = {
+    'REDIGE': { bg: '#f3f4f6', color: '#6b7280', icon: Clock },
+    'PRISE_EN_COMPTE': { bg: '#ede9fe', color: '#7c3aed', icon: Eye },
+    'VALIDE': { bg: '#dbeafe', color: '#2563eb', icon: CheckCircle },
+    'EN_COURS_DE_TRAITEMENT': { bg: '#fef3c7', color: '#d97706', icon: Clock },
+    'TRAITE': { bg: '#d1fae5', color: '#059669', icon: CheckCircle },
+    'REJETE': { bg: '#fee2e2', color: '#dc2626', icon: XCircle },
+    'BLOQUE': { bg: '#fee2e2', color: '#991b1b', icon: AlertCircle }
+  };
+
+  // Fetch incidents
   useEffect(() => {
-    const fetchIncidents = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        // 🚀 APPEL AU BACKEND
-        const data = await incidentsAPI.getAll(); 
-
-        setIncidents(data);
-        setFilteredIncidents(data);
-        
-      } catch (err) {
-        console.error("Erreur de récupération des incidents:", err);
-        setError("Erreur de chargement des incidents. Vérifiez que le backend Spring Boot (port 8085) est démarré.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchIncidents();
   }, []);
 
-  /**
-    * Fonction de recherche manuelle
-    */
-  const handleSearch = () => {
-    let filtered = [...incidents];
+  const fetchIncidents = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await incidentsAPI.getAll();
+      setIncidents(data);
+    } catch (err) {
+      console.error("Erreur:", err);
+      setError("Impossible de charger les incidents. Vérifiez que le backend est démarré.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // Filtered and sorted incidents
+  const processedIncidents = useMemo(() => {
+    let result = [...incidents];
+
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(i =>
+        i.titre?.toLowerCase().includes(query) ||
+        i.description?.toLowerCase().includes(query) ||
+        String(i.id).includes(query)
+      );
+    }
+
+    // Secteur filter
     if (filters.secteur) {
-      filtered = filtered.filter(i => i.secteurId === parseInt(filters.secteur));
+      result = result.filter(i => i.secteurId === parseInt(filters.secteur));
     }
 
-    // Filtrage par province (utilise provinceId du backend)
+    // Province filter
     if (filters.province) {
-      filtered = filtered.filter(i => i.provinceId === parseInt(filters.province)); 
+      result = result.filter(i => i.provinceId === parseInt(filters.province));
     }
 
+    // Status filter
     if (filters.statut) {
-      filtered = filtered.filter(i => i.statut === filters.statut);
+      result = result.filter(i => i.statut === filters.statut);
     }
 
-    setFilteredIncidents(filtered);
+    // Sort
+    result.sort((a, b) => {
+      let valA = a[sortBy];
+      let valB = b[sortBy];
+
+      if (sortBy === 'dateDeclaration') {
+        valA = new Date(valA || 0);
+        valB = new Date(valB || 0);
+      }
+
+      if (sortOrder === 'asc') {
+        return valA > valB ? 1 : -1;
+      }
+      return valA < valB ? 1 : -1;
+    });
+
+    return result;
+  }, [incidents, searchQuery, filters, sortBy, sortOrder]);
+
+  // Pagination
+  const totalPages = Math.ceil(processedIncidents.length / itemsPerPage);
+  const paginatedIncidents = processedIncidents.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Statistics
+  const stats = useMemo(() => ({
+    total: processedIncidents.length,
+    valides: processedIncidents.filter(i => i.statut === 'VALIDE' || i.statut === 'TRAITE').length,
+    enCours: processedIncidents.filter(i => i.statut === 'EN_COURS_DE_TRAITEMENT').length,
+    nouveaux: processedIncidents.filter(i => i.statut === 'REDIGE' || i.statut === 'PRISE_EN_COMPTE').length
+  }), [processedIncidents]);
+
+  // Reset filters
+  const resetFilters = () => {
+    setFilters({ secteur: '', province: '', statut: '' });
+    setSearchQuery('');
     setCurrentPage(1);
   };
 
-  /**
-    * Gère le changement de filtre (sans filtrage automatique)
-    */
-  const handleFilterChange = (filterName, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [filterName]: value
-    }));
-  };
-
-  /**
-   * Ouvre la modale de validation/rejet
-   */
-  const openModal = (incident, action) => {
+  // Export CSV
+  // Modal handlers
+  const openActionModal = (incident, action) => {
     setSelectedIncident(incident);
     setModalAction(action);
     setMotif('');
     setShowModal(true);
   };
 
-  /**
-   * Ferme la modale
-   */
   const closeModal = () => {
     setShowModal(false);
     setSelectedIncident(null);
@@ -138,9 +408,11 @@ const Incidents = () => {
     setMotif('');
   };
 
-  /**
-   * Soumet la validation ou le rejet
-   */
+  const openDetailModal = (incident) => {
+    setSelectedIncident(incident);
+    setShowDetailModal(true);
+  };
+
   const handleSubmitAction = async () => {
     if (modalAction === 'rejeter' && !motif.trim()) {
       alert('⚠️ Le motif de rejet est obligatoire !');
@@ -152,353 +424,588 @@ const Incidents = () => {
       if (modalAction === 'valider') {
         await adminAPI.validerIncident(selectedIncident.id);
         alert('✅ Incident validé avec succès !');
-      } else if (modalAction === 'rejeter') {
+      } else {
         await adminAPI.rejeterIncident(selectedIncident.id, motif);
-        alert('✅ Incident rejeté avec succès !');
+        alert('✅ Incident rejeté !');
       }
-
-      // Recharger les incidents
-      const data = await incidentsAPI.getAll();
-      setIncidents(data);
-      setFilteredIncidents(data);
-      
+      await fetchIncidents();
       closeModal();
     } catch (err) {
-      console.error('Erreur lors de l\'action:', err);
       alert('❌ Erreur : ' + err.message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  /**
-    * Réinitialise tous les filtres et affiche tous les incidents
-    */
-  const resetFilters = () => {
-    setFilters({
-      secteur: '',
-      province: '',
-      statut: '',
-    });
-    setFilteredIncidents(incidents);
-    setCurrentPage(1);
-  };
-
-  /**
-    * Formate une date en format lisible
-    */
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  // Gestion de l'état de chargement
+  // Loading state
   if (loading) {
     return (
-      <div className="page">
-        <div className="container" style={{ textAlign: 'center', padding: '4rem 0' }}>
-          <div className="spin" style={{ display: 'inline-block', marginBottom: '1rem' }}>
-            <Clock size={48} />
-          </div>
-          <p>Chargement des incidents...</p>
+      <div style={styles.container}>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '60vh',
+          gap: '16px'
+        }}>
+          <Loader2 size={48} style={{ animation: 'spin 1s linear infinite', color: '#3b82f6' }} />
+          <p style={{ color: '#64748b' }}>Chargement des incidents...</p>
         </div>
       </div>
     );
   }
 
-  // Gestion de l'état d'erreur
+  // Error state
   if (error) {
     return (
-        <div className="page">
-          <div className="container" style={{ textAlign: 'center', padding: '4rem 0', color: 'red' }}>
-            <AlertCircle size={48} style={{ display: 'inline-block', marginBottom: '1rem' }} />
-            <p style={{ fontWeight: '600' }}>Erreur de connexion :</p>
-            <p>{error}</p>
-          </div>
+      <div style={styles.container}>
+        <div style={{
+          textAlign: 'center',
+          padding: '60px',
+          background: '#fff',
+          borderRadius: '16px',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.06)'
+        }}>
+          <AlertCircle size={48} color="#ef4444" style={{ marginBottom: '16px' }} />
+          <h3 style={{ color: '#1e293b', marginBottom: '8px' }}>Erreur de connexion</h3>
+          <p style={{ color: '#64748b', marginBottom: '24px' }}>{error}</p>
+          <button
+            onClick={fetchIncidents}
+            style={{
+              ...styles.actionBtn,
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: '#fff'
+            }}
+          >
+            <RefreshCw size={16} /> Réessayer
+          </button>
         </div>
-      );
+      </div>
+    );
   }
 
-  // Pagination
-  const indexDernierIncident = currentPage * incidentsParPage;
-  const indexPremierIncident = indexDernierIncident - incidentsParPage;
-  const incidentsActuels = filteredIncidents.slice(indexPremierIncident, indexDernierIncident);
-  const nombrePages = Math.ceil(filteredIncidents.length / incidentsParPage);
-
   return (
-    <div className="page">
-      <div className="container">
-        <div className="page-header">
-          <h1 className="page-title">Liste des Incidents</h1>
-          <p className="page-description">
-            {filteredIncidents.length} incident(s) trouvé(s)
-          </p>
-        </div>
-
-        {/* Filtres */}
-        <div className="card" style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem' }}>
-            <Filter size={20} style={{ marginRight: '0.5rem' }} />
-            <h2 style={{ fontSize: '1.2rem', fontWeight: '600' }}>Filtres</h2>
+    <div style={styles.container}>
+      {/* Header */}
+      <div style={styles.header}>
+        <div style={styles.headerLeft}>
+          <div style={styles.headerIcon}>
+            <List size={28} />
           </div>
-
-          <div className="grid grid-5">
-            <div className="form-group">
-              <label className="form-label">Secteur</label>
-              <select 
-                className="form-select"
-                value={filters.secteur}
-                onChange={(e) => handleFilterChange('secteur', e.target.value)}
-              >
-                <option value="">Tous les secteurs</option>
-                {SECTEURS.map(secteur => (
-                  <option key={secteur.id} value={secteur.id}>
-                    {secteur.nom}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Province</label>
-              <select 
-                className="form-select"
-                value={filters.province}
-                onChange={(e) => handleFilterChange('province', e.target.value)}
-              >
-                <option value="">Toutes les provinces</option>
-                {/* 🛑 CORRECTION: Utiliser PROVINCES_MAP pour récupérer l'ID */}
-                {PROVINCES_MAP.map(province => ( 
-                  <option key={province.id} value={province.id}>
-                    {province.nom}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Statut</label>
-              <select 
-                className="form-select"
-                value={filters.statut}
-                onChange={(e) => handleFilterChange('statut', e.target.value)}
-              >
-                <option value="">Tous les statuts</option>
-                {STATUTS_INCIDENTS.map(statut => (
-                  <option key={statut.id} value={statut.id}>
-                    {statut.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <button 
-                className="btn btn-primary"
-                onClick={handleSearch}
-                style={{ width: '100%' }}
-              >
-                🔍 Chercher
-              </button>
-            </div>
-
-            <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <button 
-                className="btn btn-secondary"
-                onClick={resetFilters}
-                style={{ width: '100%' }}
-              >
-                🔄 Réinitialiser
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Tableau des incidents */}
-        {incidentsActuels.length === 0 ? (
-          <div className="card" style={{ textAlign: 'center', padding: '3rem' }}>
-            <AlertCircle size={48} color="#6b7280" style={{ margin: '0 auto 1rem' }} />
-            <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem' }}>
-              {incidents.length === 0 ? "Aucun incident n'est enregistré dans la base de données." : "Aucun incident trouvé avec ces critères."}
+          <div>
+            <h1 style={styles.title}>Liste des Incidents</h1>
+            <p style={styles.subtitle}>
+              {processedIncidents.length} incident(s) trouvé(s)
             </p>
           </div>
-        ) : (
-          <>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Secteur</th>
-                    <th>Type</th>
-                    <th>Description</th>
-                    <th>Province</th>
-                    <th>Statut</th>
-                    <th>Date</th>
-                    {user?.role === 'ADMIN' && <th>Actions</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {incidentsActuels.map(incident => {
-                    const statut = getStatut(incident.statut);
-                    const secteurColor = getSecteurColor(incident.secteurId);
-                    
-                    return (
-                      <tr key={incident.id}>
-                        <td style={{ fontWeight: '600' }}>#{incident.id}</td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <div style={{ 
-                              width: '12px', 
-                              height: '12px', 
-                              borderRadius: '50%',
-                              backgroundColor: secteurColor 
-                            }} />
-                            {getSecteurNom(incident.secteurId)}
+        </div>
+        <div style={styles.statsBar}>
+          <div style={styles.statBadge}>
+            <CheckCircle size={16} />
+            {stats.valides} traités
+          </div>
+          <div style={styles.statBadge}>
+            <Clock size={16} />
+            {stats.enCours} en cours
+          </div>
+          <div style={styles.statBadge}>
+            <AlertCircle size={16} />
+            {stats.nouveaux} nouveaux
+          </div>
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div style={styles.searchBar}>
+        <div style={{ position: 'relative', display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Search size={20} style={{
+              position: 'absolute',
+              left: '14px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#94a3b8'
+            }} />
+            <input
+              type="text"
+              placeholder="Rechercher un incident par titre, description ou ID..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={styles.searchInput}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            style={{
+              ...styles.actionBtn,
+              background: showFilters ? '#3b82f6' : '#f1f5f9',
+              color: showFilters ? '#fff' : '#64748b'
+            }}
+          >
+            <Filter size={18} />
+            Filtres
+            <ChevronDown size={16} style={{
+              transform: showFilters ? 'rotate(180deg)' : 'none',
+              transition: 'transform 0.2s'
+            }} />
+          </button>
+        </div>
+      </div>
+
+      {/* Filters Panel */}
+      {showFilters && (
+        <div style={styles.filtersContainer}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <h3 style={{ margin: 0, fontSize: '1rem', color: '#1e293b', fontWeight: '600' }}>
+              🎛️ Filtres Avancés
+            </h3>
+            <button
+              onClick={resetFilters}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#3b82f6',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                fontWeight: '500'
+              }}
+            >
+              Réinitialiser
+            </button>
+          </div>
+          <div style={styles.filterGrid}>
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '0.8rem',
+                color: '#64748b',
+                marginBottom: '6px',
+                fontWeight: '500'
+              }}>
+                Secteur
+              </label>
+              <select
+                value={filters.secteur}
+                onChange={(e) => {
+                  setFilters(prev => ({ ...prev, secteur: e.target.value }));
+                  setCurrentPage(1);
+                }}
+                style={styles.select}
+              >
+                <option value="">Tous les secteurs</option>
+                {SECTEURS.map(s => (
+                  <option key={s.id} value={s.id}>{s.nom}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '0.8rem',
+                color: '#64748b',
+                marginBottom: '6px',
+                fontWeight: '500'
+              }}>
+                Province
+              </label>
+              <select
+                value={filters.province}
+                onChange={(e) => {
+                  setFilters(prev => ({ ...prev, province: e.target.value }));
+                  setCurrentPage(1);
+                }}
+                style={styles.select}
+              >
+                <option value="">Toutes les provinces</option>
+                {PROVINCES_MAP.map(p => (
+                  <option key={p.id} value={p.id}>{p.nom}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '0.8rem',
+                color: '#64748b',
+                marginBottom: '6px',
+                fontWeight: '500'
+              }}>
+                Statut
+              </label>
+              <select
+                value={filters.statut}
+                onChange={(e) => {
+                  setFilters(prev => ({ ...prev, statut: e.target.value }));
+                  setCurrentPage(1);
+                }}
+                style={styles.select}
+              >
+                <option value="">Tous les statuts</option>
+                {STATUTS_INCIDENTS.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div style={styles.tableContainer}>
+        {/* Table Header */}
+        <div style={styles.tableHeader}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: '#64748b', fontSize: '0.9rem' }}>
+              Afficher
+            </span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                fontSize: '0.85rem'
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+            <span style={{ color: '#64748b', fontSize: '0.9rem' }}>
+              par page
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => setViewMode('table')}
+              style={{
+                ...styles.pageBtn,
+                background: viewMode === 'table' ? '#3b82f6' : '#fff',
+                color: viewMode === 'table' ? '#fff' : '#64748b',
+                borderColor: viewMode === 'table' ? '#3b82f6' : '#e2e8f0'
+              }}
+            >
+              <List size={16} />
+            </button>
+            <button
+              onClick={() => setViewMode('cards')}
+              style={{
+                ...styles.pageBtn,
+                background: viewMode === 'cards' ? '#3b82f6' : '#fff',
+                color: viewMode === 'cards' ? '#fff' : '#64748b',
+                borderColor: viewMode === 'cards' ? '#3b82f6' : '#e2e8f0'
+              }}
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              onClick={fetchIncidents}
+              style={{ ...styles.pageBtn, display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        </div>
+
+        {paginatedIncidents.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px' }}>
+            <AlertCircle size={48} color="#94a3b8" style={{ marginBottom: '16px' }} />
+            <h3 style={{ color: '#64748b', marginBottom: '8px' }}>Aucun incident trouvé</h3>
+            <p style={{ color: '#94a3b8' }}>Modifiez vos critères de recherche</p>
+          </div>
+        ) : viewMode === 'table' ? (
+          /* Table View */
+          <div style={{ overflowX: 'auto' }}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>ID</th>
+                  <th style={styles.th}>Titre / Description</th>
+                  <th style={styles.th}>Secteur</th>
+                  <th style={styles.th}>Province</th>
+                  <th style={styles.th}>Statut</th>
+                  <th style={styles.th}>Date</th>
+                  <th style={{ ...styles.th, textAlign: 'center' }}>Localisation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedIncidents.map((incident, idx) => {
+                  const secteur = getSecteurInfo(incident.secteurId);
+                  const statusStyle = statusColors[incident.statut] || statusColors.REDIGE;
+                  const StatusIcon = statusStyle.icon;
+
+                  return (
+                    <tr
+                      key={incident.id}
+                      style={{
+                        ...styles.row,
+                        background: idx % 2 === 0 ? '#fff' : '#fafafa'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f0f9ff'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#fafafa'}
+                      onClick={() => openDetailModal(incident)}
+                    >
+                      <td style={styles.td}>
+                        <span style={{
+                          background: '#eff6ff',
+                          color: '#2563eb',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          fontWeight: '600'
+                        }}>
+                          #{incident.id}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <div>
+                          <div style={{ fontWeight: '600', color: '#1e293b', marginBottom: '4px' }}>
+                            {incident.titre || incident.typeIncident || 'Sans titre'}
                           </div>
-                        </td>
-                        {/* 🛑 CORRECTION: Utiliser 'titre' du DTO à la place de 'typeIncident' */}
-                        <td>{incident.typeIncident}</td> 
-                        <td style={{ maxWidth: '300px' }}>
-                          <div style={{ 
-                            overflow: 'hidden', 
+                          <div style={{
+                            fontSize: '0.85rem',
+                            color: '#64748b',
+                            maxWidth: '300px',
+                            overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap'
                           }}>
                             {incident.description}
                           </div>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <MapPin size={14} />
-                            {/* 🛑 CORRECTION: Afficher le nom à partir de l'ID */}
-                            {getProvinceNom(incident.provinceId)} 
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`badge badge-${statut.color}`}>
-                            {statut.label}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.875rem' }}>
-                            <Calendar size={14} />
-                            {formatDate(incident.dateDeclaration)}
-                          </div>
-                        </td>
-                        {user?.role === 'ADMIN' && (
-                          <td>
-                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                              {incident.statut !== 'VALIDE_PUBLIE' && incident.statut !== 'REJETE' ? (
-                                <>
-                                  <button
-                                    onClick={() => openModal(incident, 'valider')}
-                                    className="btn btn-sm btn-success"
-                                    style={{
-                                      padding: '0.375rem 0.75rem',
-                                      fontSize: '0.875rem',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      backgroundColor: '#10b981',
-                                      border: 'none',
-                                      borderRadius: '0.375rem',
-                                      color: 'white',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    <CheckCircle size={16} />
-                                    Valider
-                                  </button>
-                                  <button
-                                    onClick={() => openModal(incident, 'rejeter')}
-                                    className="btn btn-sm btn-danger"
-                                    style={{
-                                      padding: '0.375rem 0.75rem',
-                                      fontSize: '0.875rem',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      backgroundColor: '#ef4444',
-                                      border: 'none',
-                                      borderRadius: '0.375rem',
-                                      color: 'white',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    <XCircle size={16} />
-                                    Rejeter
-                                  </button>
-                                </>
-                              ) : (
-                                <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>—</span>
-                              )}
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {nombrePages > 1 && (
-              <div className="pagination">
-                <button
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                >
-                  Précédent
-                </button>
-
-                {[...Array(nombrePages)].map((_, index) => {
-                  const pageNumber = index + 1;
-                  // Affiche seulement quelques pages autour de la page actuelle
-                  if (
-                    pageNumber === 1 ||
-                    pageNumber === nombrePages ||
-                    (pageNumber >= currentPage - 1 && pageNumber <= currentPage + 1)
-                  ) {
-                    return (
-                      <button
-                        key={pageNumber}
-                        onClick={() => setCurrentPage(pageNumber)}
-                        className={currentPage === pageNumber ? 'active' : ''}
-                      >
-                        {pageNumber}
-                      </button>
-                    );
-                  } else if (
-                    pageNumber === currentPage - 2 ||
-                    pageNumber === currentPage + 2
-                  ) {
-                    return <span key={pageNumber}>...</span>;
-                  }
-                  return null;
+                        </div>
+                      </td>
+                      <td style={styles.td}>
+                        <span style={{
+                          ...styles.sectorBadge,
+                          background: `${secteur.color}20`,
+                          color: secteur.color
+                        }}>
+                          <div style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            background: secteur.color
+                          }} />
+                          {secteur.nom}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b' }}>
+                          <MapPin size={14} />
+                          {incident.province || (
+                            <span style={{ fontStyle: 'italic', color: '#94a3b8' }}>Non renseigné</span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={styles.td}>
+                        <span style={{
+                          ...styles.statusBadge,
+                          background: statusStyle.bg,
+                          color: statusStyle.color
+                        }}>
+                          <StatusIcon size={12} />
+                          {getStatut(incident.statut).label}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.85rem' }}>
+                          <Calendar size={14} />
+                          {formatDate(incident.dateDeclaration)}
+                        </div>
+                      </td>
+                      <td style={{ ...styles.td, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => {
+                            // Navigate to map with incident (zoom to level 18)
+                            navigate(`/carte?incident=${incident.id}`);
+                          }}
+                          style={{
+                            ...styles.actionBtn,
+                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            color: '#fff',
+                            padding: '8px 14px',
+                            fontSize: '0.8rem',
+                            boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                          }}
+                        >
+                          <Map size={14} />
+                          Voir sur carte
+                        </button>
+                      </td>
+                    </tr>
+                  );
                 })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* Cards View */
+          <div style={{
+            padding: '20px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gap: '16px'
+          }}>
+            {paginatedIncidents.map((incident) => {
+              const secteur = getSecteurInfo(incident.secteurId);
+              const statusStyle = statusColors[incident.statut] || statusColors.REDIGE;
+              const StatusIcon = statusStyle.icon;
 
-                <button
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, nombrePages))}
-                  disabled={currentPage === nombrePages}
+              return (
+                <div
+                  key={incident.id}
+                  style={styles.card}
+                  onClick={() => openDetailModal(incident)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.1)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
                 >
-                  Suivant
-                </button>
-              </div>
-            )}
-          </>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <span style={{
+                      background: '#eff6ff',
+                      color: '#2563eb',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.8rem',
+                      fontWeight: '600'
+                    }}>
+                      #{incident.id}
+                    </span>
+                    <span style={{
+                      ...styles.statusBadge,
+                      background: statusStyle.bg,
+                      color: statusStyle.color
+                    }}>
+                      <StatusIcon size={12} />
+                      {getStatut(incident.statut).label}
+                    </span>
+                  </div>
+                  <h4 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '1rem' }}>
+                    {incident.titre || incident.typeIncident || 'Sans titre'}
+                  </h4>
+                  <p style={{
+                    color: '#64748b',
+                    fontSize: '0.85rem',
+                    margin: '0 0 16px 0',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden'
+                  }}>
+                    {incident.description}
+                  </p>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingTop: '12px',
+                    borderTop: '1px solid #f1f5f9'
+                  }}>
+                    <span style={{
+                      ...styles.sectorBadge,
+                      background: `${secteur.color}20`,
+                      color: secteur.color
+                    }}>
+                      {secteur.nom}
+                    </span>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                      {formatDate(incident.dateDeclaration)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div style={styles.pagination}>
+            <span style={{ color: '#64748b', fontSize: '0.875rem' }}>
+              Page {currentPage} sur {totalPages} · {processedIncidents.length} résultat(s)
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                style={{
+                  ...styles.pageBtn,
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                let page;
+                if (totalPages <= 5) {
+                  page = i + 1;
+                } else if (currentPage <= 3) {
+                  page = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  page = totalPages - 4 + i;
+                } else {
+                  page = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    style={{
+                      ...styles.pageBtn,
+                      background: currentPage === page ? '#3b82f6' : '#fff',
+                      color: currentPage === page ? '#fff' : '#64748b',
+                      borderColor: currentPage === page ? '#3b82f6' : '#e2e8f0'
+                    }}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                style={{
+                  ...styles.pageBtn,
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* MODALE DE VALIDATION/REJET */}
+      {/* Action Modal */}
       {showModal && (
         <div style={{
           position: 'fixed',
@@ -506,98 +1013,123 @@ const Incidents = () => {
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          background: 'rgba(15, 23, 42, 0.7)',
+          backdropFilter: 'blur(4px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 1000
+          zIndex: 1000,
+          padding: '20px'
         }}>
           <div style={{
-            backgroundColor: 'white',
-            borderRadius: '0.5rem',
-            padding: '2rem',
-            maxWidth: '500px',
-            width: '90%',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+            background: '#fff',
+            borderRadius: '20px',
+            maxWidth: '480px',
+            width: '100%',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
           }}>
-            <h3 style={{ 
-              fontSize: '1.25rem', 
-              fontWeight: '600', 
-              marginBottom: '1rem',
-              color: modalAction === 'valider' ? '#10b981' : '#ef4444'
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
             }}>
-              {modalAction === 'valider' ? (
-                <>
-                  <CheckCircle size={24} style={{ display: 'inline', marginRight: '0.5rem' }} />
-                  Valider l'incident
-                </>
-              ) : (
-                <>
-                  <XCircle size={24} style={{ display: 'inline', marginRight: '0.5rem' }} />
-                  Rejeter l'incident
-                </>
-              )}
-            </h3>
-
-            <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.375rem' }}>
-              <p style={{ margin: 0, fontSize: '0.875rem', color: '#6b7280' }}>
-                <strong>Incident #{selectedIncident?.id}</strong>
-              </p>
-              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.875rem' }}>
-                {selectedIncident?.description}
-              </p>
+              <h3 style={{
+                margin: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                color: modalAction === 'valider' ? '#059669' : '#dc2626'
+              }}>
+                {modalAction === 'valider' ? <CheckCircle size={24} /> : <XCircle size={24} />}
+                {modalAction === 'valider' ? 'Valider l\'incident' : 'Rejeter l\'incident'}
+              </h3>
+              <button
+                onClick={closeModal}
+                style={{
+                  background: '#f1f5f9',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <X size={18} />
+              </button>
             </div>
-
-            {modalAction === 'rejeter' && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  fontWeight: '500', 
-                  marginBottom: '0.5rem',
-                  color: '#374151'
-                }}>
-                  Motif de rejet <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <textarea
-                  value={motif}
-                  onChange={(e) => setMotif(e.target.value)}
-                  placeholder="Veuillez saisir le motif du rejet..."
-                  rows={4}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '0.375rem',
-                    fontSize: '0.875rem',
-                    fontFamily: 'inherit',
-                    resize: 'vertical'
-                  }}
-                />
-              </div>
-            )}
-
-            {modalAction === 'valider' && (
-              <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0fdf4', borderRadius: '0.375rem', border: '1px solid #86efac' }}>
-                <p style={{ margin: 0, fontSize: '0.875rem', color: '#166534' }}>
-                  ✅ Cet incident sera validé et publié. Les professionnels pourront le consulter et le traiter.
+            <div style={{ padding: '24px' }}>
+              <div style={{
+                background: '#f8fafc',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '20px'
+              }}>
+                <p style={{ margin: 0, fontWeight: '600', color: '#1e293b' }}>
+                  Incident #{selectedIncident?.id}
+                </p>
+                <p style={{ margin: '8px 0 0 0', fontSize: '0.9rem', color: '#64748b' }}>
+                  {selectedIncident?.description}
                 </p>
               </div>
-            )}
 
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              {modalAction === 'rejeter' && (
+                <div>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontWeight: '500',
+                    color: '#374151'
+                  }}>
+                    Motif de rejet <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <textarea
+                    value={motif}
+                    onChange={(e) => setMotif(e.target.value)}
+                    placeholder="Expliquez la raison du rejet..."
+                    rows={4}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: '2px solid #e2e8f0',
+                      fontSize: '0.9rem',
+                      resize: 'vertical',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#ef4444'}
+                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  />
+                </div>
+              )}
+
+              {modalAction === 'valider' && (
+                <div style={{
+                  background: '#d1fae5',
+                  borderRadius: '10px',
+                  padding: '14px',
+                  border: '1px solid #86efac'
+                }}>
+                  <p style={{ margin: 0, fontSize: '0.9rem', color: '#166534' }}>
+                    ✅ L'incident sera validé et publié. Les professionnels pourront le consulter.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div style={{
+              padding: '16px 24px 24px',
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
               <button
                 onClick={closeModal}
                 disabled={submitting}
                 style={{
-                  padding: '0.5rem 1rem',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '0.375rem',
-                  backgroundColor: 'white',
-                  color: '#374151',
-                  cursor: submitting ? 'not-allowed' : 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: '500'
+                  ...styles.actionBtn,
+                  background: '#f1f5f9',
+                  color: '#64748b'
                 }}
               >
                 Annuler
@@ -606,22 +1138,144 @@ const Incidents = () => {
                 onClick={handleSubmitAction}
                 disabled={submitting}
                 style={{
-                  padding: '0.5rem 1rem',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  backgroundColor: modalAction === 'valider' ? '#10b981' : '#ef4444',
-                  color: 'white',
-                  cursor: submitting ? 'not-allowed' : 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: '500'
+                  ...styles.actionBtn,
+                  background: modalAction === 'valider'
+                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                    : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  color: '#fff',
+                  opacity: submitting ? 0.7 : 1
                 }}
               >
-                {submitting ? 'En cours...' : (modalAction === 'valider' ? 'Confirmer la validation' : 'Confirmer le rejet')}
+                {submitting ? 'En cours...' : 'Confirmer'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Detail Modal */}
+      {showDetailModal && selectedIncident && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.7)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px'
+        }} onClick={() => setShowDetailModal(false)}>
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: '20px',
+              maxWidth: '600px',
+              width: '100%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              padding: '24px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <span style={{
+                  background: '#eff6ff',
+                  color: '#2563eb',
+                  padding: '4px 12px',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  fontWeight: '600'
+                }}>
+                  Incident #{selectedIncident.id}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                style={{
+                  background: '#f1f5f9',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <h2 style={{ margin: '0 0 16px 0', color: '#1e293b' }}>
+                {selectedIncident.titre || selectedIncident.typeIncident || 'Incident'}
+              </h2>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Secteur</label>
+                  <span style={{
+                    ...styles.sectorBadge,
+                    background: `${getSecteurInfo(selectedIncident.secteurId).color}20`,
+                    color: getSecteurInfo(selectedIncident.secteurId).color
+                  }}>
+                    {getSecteurInfo(selectedIncident.secteurId).nom}
+                  </span>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Statut</label>
+                  <span style={{
+                    ...styles.statusBadge,
+                    background: (statusColors[selectedIncident.statut] || statusColors.REDIGE).bg,
+                    color: (statusColors[selectedIncident.statut] || statusColors.REDIGE).color
+                  }}>
+                    {getStatut(selectedIncident.statut).label}
+                  </span>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Province</label>
+                  <span style={{ color: '#1e293b' }}>
+                    {getProvinceNom(selectedIncident.provinceId) || 'Non renseigné'}
+                  </span>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Date</label>
+                  <span style={{ color: '#1e293b' }}>
+                    {formatDate(selectedIncident.dateDeclaration)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '8px' }}>Description</label>
+                <div style={{
+                  background: '#f8fafc',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  color: '#475569',
+                  lineHeight: '1.6'
+                }}>
+                  {selectedIncident.description || 'Aucune description'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 };
