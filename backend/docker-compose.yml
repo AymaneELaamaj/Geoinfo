@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgis/postgis:14-3.3
+    container_name: geoinfo-postgres
+    environment:
+      POSTGRES_DB: geoinfo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./src/main/resources/init-data.sql:/docker-entrypoint-initdb.d/init-data.sql
+    networks:
+      - geoinfo-network
+
+  backend:
+    build: .
+    container_name: geoinfo-backend
+    depends_on:
+      - postgres
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/geoinfo
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    ports:
+      - "8085:8085"
+    volumes:
+      - ./uploads:/app/uploads
+    networks:
+      - geoinfo-network
+
+volumes:
+  postgres-data:
+
+networks:
+  geoinfo-network:
+    driver: bridge

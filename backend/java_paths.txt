@@ -1,0 +1,2 @@
+﻿C:\Program Files\Eclipse Adoptium\jdk-25.0.1.8-hotspot\bin\java.exe
+C:\Program Files (x86)\Common Files\Oracle\Java\java8path\java.exe
